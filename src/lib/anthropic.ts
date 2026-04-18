@@ -24,4 +24,4 @@ export function getAnthropic(): Anthropic {
  * Model used for all essay coaching calls. Pinned here so we can upgrade
  * in one place.
  */
-export const ESSAY_MODEL = "claude-sonnet-4-6";
+export const ESSAY_MODEL = "claude-haiku-4-5-20251001";
