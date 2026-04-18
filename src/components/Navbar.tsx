@@ -33,6 +33,12 @@ export async function Navbar() {
                 Pipeline
               </Link>
               <Link
+                href="/vault"
+                className="text-slate-600 hover:text-slate-900"
+              >
+                Vault
+              </Link>
+              <Link
                 href="/onboarding"
                 className="text-slate-600 hover:text-slate-900"
               >

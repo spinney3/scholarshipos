@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useDraggable } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
 import type { ApplicationWithScholarship } from "@/lib/types";
@@ -63,16 +64,25 @@ export function KanbanCard({ app, dragging, onDelete }: Props) {
           })}
           {past ? " · closed" : urgent ? ` · ${daysUntil}d left` : ""}
         </span>
-        {onDelete && (
-          <button
+        <div className="flex items-center gap-2">
+          <Link
+            href={`/essay/${app.id}`}
             onPointerDown={(e) => e.stopPropagation()}
-            onClick={() => onDelete(app.id)}
-            className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-rose-600 transition-opacity"
-            aria-label="Remove from pipeline"
+            className="text-brand-600 hover:text-brand-700 font-medium"
           >
-            Remove
-          </button>
-        )}
+            Essay →
+          </Link>
+          {onDelete && (
+            <button
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={() => onDelete(app.id)}
+              className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-rose-600 transition-opacity"
+              aria-label="Remove from pipeline"
+            >
+              Remove
+            </button>
+          )}
+        </div>
       </div>
     </article>
   );
