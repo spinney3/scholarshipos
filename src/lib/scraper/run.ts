@@ -432,8 +432,28 @@ async function upsertDedup(
 
   if (writable.length === 0) return { inserted: 0, updated: 0 };
 
-  const toInsert = writable.filter((r) => !existingByUrl.has(r.url));
+  const toInsertRaw = writable.filter((r) => !existingByUrl.has(r.url));
   const toUpdate = writable.filter((r) => existingByUrl.has(r.url));
+
+  // CCCF's html_index pipeline can yield multiple rows that normalize to the
+  // same URL within a single run — e.g., two fund pages both pointing at a
+  // shared "apply here" landing page, or Claude emitting two variants for
+  // the same award on a long detail page. Without this collapse the batch
+  // insert violates scholarships_catalog_url_idx on the first dup pair and
+  // the whole transaction rolls back, losing every row the scraper worked
+  // for. First-wins is fine: the matcher has no way to prefer one variant
+  // over another, and the nightly re-run will replace whichever copy won.
+  const insertByUrl = new Map<string, NormalizedScholarship>();
+  for (const row of toInsertRaw) {
+    if (!insertByUrl.has(row.url)) insertByUrl.set(row.url, row);
+  }
+  const toInsert = Array.from(insertByUrl.values());
+  const dupsCollapsed = toInsertRaw.length - toInsert.length;
+  if (dupsCollapsed > 0) {
+    console.log(
+      `[upsert] collapsed ${dupsCollapsed} intra-batch duplicate URL(s) before insert`,
+    );
+  }
 
   // Insert new catalog rows in one round-trip. `created_by` defaults to
   // NULL so the partial unique index governs these.
