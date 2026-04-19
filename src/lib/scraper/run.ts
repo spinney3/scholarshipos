@@ -385,7 +385,8 @@ async function scrapeOne(
 }
 
 /**
- * Dedup by URL. We pre-query existing URLs with their source so we can:
+ * Dedup by URL. We pre-query existing CATALOG rows (created_by IS NULL)
+ * with their source so we can:
  *   1. Count inserted vs. updated for observability
  *   2. Skip rows that already exist as `seed` — we must never let the scraper
  *      flip a curated seed scholarship to `source='local'` just because the
@@ -393,6 +394,14 @@ async function scrapeOne(
  *
  * Rows that already exist as `local` are still updated so the nightly run
  * can refresh deadline, amount, and eligibility as sites change them.
+ *
+ * NOTE: migration 007 replaced the global `scholarships_url_key` unique
+ * constraint with a *partial* unique index (WHERE created_by IS NULL) so
+ * multiple students can upload the same URL as their own `user_added` row.
+ * That broke `.upsert({ onConflict: "url" })` — PostgREST can't resolve a
+ * partial index by column name — so we do explicit insert + per-row update
+ * instead. Slightly more chatty but correct, and the scraper's write volume
+ * is bounded (~100 rows/run) so the round-trip cost is negligible.
  */
 async function upsertDedup(
   admin: ReturnType<typeof createAdminClient>,
@@ -400,10 +409,14 @@ async function upsertDedup(
 ): Promise<{ inserted: number; updated: number }> {
   const urls = rows.map((r) => r.url);
 
+  // Scope the existence check to catalog rows. A user_added row with the
+  // same URL is a different (private) scholarship and must not influence
+  // scraper behavior.
   const { data: existing } = await admin
     .from("scholarships")
     .select("url, source")
-    .in("url", urls);
+    .in("url", urls)
+    .is("created_by", null);
 
   const existingByUrl = new Map<string, string>();
   for (const r of existing ?? []) {
@@ -422,11 +435,42 @@ async function upsertDedup(
   const toInsert = writable.filter((r) => !existingByUrl.has(r.url));
   const toUpdate = writable.filter((r) => existingByUrl.has(r.url));
 
-  const { error } = await admin.from("scholarships").upsert(writable, {
-    onConflict: "url",
-  });
+  // Insert new catalog rows in one round-trip. `created_by` defaults to
+  // NULL so the partial unique index governs these.
+  if (toInsert.length > 0) {
+    const { error: insertErr } = await admin
+      .from("scholarships")
+      .insert(toInsert);
+    if (insertErr) {
+      throw new Error(`insert failed: ${insertErr.message}`);
+    }
+  }
 
-  if (error) throw new Error(`upsert failed: ${error.message}`);
+  // Update existing local rows one at a time. We gate the UPDATE on both
+  // url AND source='local' AND created_by IS NULL so a race where a seed
+  // row appeared between our SELECT and UPDATE can't overwrite it.
+  for (const row of toUpdate) {
+    const { error: updateErr } = await admin
+      .from("scholarships")
+      .update({
+        title: row.title,
+        provider: row.provider,
+        amount: row.amount,
+        deadline: row.deadline,
+        description: row.description,
+        eligibility_summary: row.eligibility_summary,
+        min_gpa: row.min_gpa,
+        interests: row.interests,
+        zip_scope: row.zip_scope,
+        essay_prompt: row.essay_prompt,
+      })
+      .eq("url", row.url)
+      .eq("source", "local")
+      .is("created_by", null);
+    if (updateErr) {
+      throw new Error(`update failed for ${row.url}: ${updateErr.message}`);
+    }
+  }
 
   return { inserted: toInsert.length, updated: toUpdate.length };
 }
