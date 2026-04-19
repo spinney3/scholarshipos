@@ -49,7 +49,7 @@ export default async function MatchesPage() {
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-8">
-      <header className="flex items-baseline justify-between">
+      <header className="flex flex-wrap items-baseline justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold text-slate-900">
             Your matches
@@ -64,12 +64,20 @@ export default async function MatchesPage() {
             </Link>
           </p>
         </div>
-        <Link
-          href="/onboarding"
-          className="text-sm text-slate-600 hover:text-slate-900"
-        >
-          Edit profile
-        </Link>
+        <div className="flex items-center gap-4 text-sm">
+          <Link
+            href="/scholarships/new"
+            className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-slate-700 hover:bg-slate-50"
+          >
+            + Add scholarship
+          </Link>
+          <Link
+            href="/onboarding"
+            className="text-slate-600 hover:text-slate-900"
+          >
+            Edit profile
+          </Link>
+        </div>
       </header>
 
       <MatchList

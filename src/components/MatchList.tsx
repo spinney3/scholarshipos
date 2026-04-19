@@ -124,6 +124,14 @@ function MatchCard({
                 Local
               </span>
             )}
+            {s.source === "user_added" && (
+              <span
+                title="You added this scholarship manually. Only you can see it."
+                className="text-[11px] uppercase tracking-wide rounded-full bg-indigo-50 text-indigo-700 px-2 py-0.5 font-medium"
+              >
+                My upload
+              </span>
+            )}
           </div>
           <p className="text-sm text-slate-600">{s.provider}</p>
         </div>
@@ -183,14 +191,20 @@ function MatchCard({
           {!disqualified && `Match score: ${score}`}
         </div>
         <div className="flex flex-wrap items-center gap-3 text-sm">
-          <a
-            href={s.url}
-            target="_blank"
-            rel="noreferrer"
-            className="text-slate-600 hover:text-slate-900"
-          >
-            View details ↗
-          </a>
+          {s.url ? (
+            <a
+              href={s.url}
+              target="_blank"
+              rel="noreferrer"
+              className="text-slate-600 hover:text-slate-900"
+            >
+              View details ↗
+            </a>
+          ) : (
+            <span className="text-xs text-slate-400 italic">
+              No link (PDF upload)
+            </span>
+          )}
           {status ? (
             <span className="rounded-md bg-slate-100 px-3 py-1.5 text-slate-700">
               In pipeline · {STATUS_LABELS[status]}

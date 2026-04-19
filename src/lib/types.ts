@@ -47,12 +47,13 @@ export interface Profile {
   updated_at: string;
 }
 
-export type ScholarshipSource = "seed" | "local" | "api";
+export type ScholarshipSource = "seed" | "local" | "api" | "user_added";
 
 export const SCHOLARSHIP_SOURCE_LABELS: Record<ScholarshipSource, string> = {
   seed: "National",
   local: "Local",
   api: "API",
+  user_added: "My upload",
 };
 
 export interface Scholarship {
@@ -81,6 +82,10 @@ export interface Scholarship {
   url: string;
   essay_prompt: string | null;
   source: ScholarshipSource;
+  // Set to the student's auth user id when source='user_added'. NULL for all
+  // catalog rows (seed/local/api). RLS in migration 007 keeps user_added
+  // rows private to their uploader.
+  created_by: string | null;
   created_at: string;
 }
 
