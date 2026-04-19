@@ -7,35 +7,81 @@ import type { MatchResult } from "@/lib/matching";
 import type { ApplicationStatus } from "@/lib/types";
 import { STATUS_LABELS } from "@/lib/types";
 
+/**
+ * A labeled cluster of eligible matches. The page splits results by source
+ * (My uploads / Local to your area / National) before handing them in, so
+ * MatchList stays presentation-only. `emptyState` is rendered when the
+ * group's `matches` array is empty — useful for the "Local" section when
+ * the student's ZIP has coverage but nothing's been scraped yet.
+ */
+export interface EligibleGroup {
+  key: string;
+  title: string;
+  subtitle?: string;
+  matches: MatchResult[];
+  emptyState?: React.ReactNode;
+  accentClass?: string; // small colored bar next to the section title
+}
+
 interface Props {
-  eligible: MatchResult[];
+  groups: EligibleGroup[];
   ineligible: MatchResult[];
   inPipeline: Record<string, ApplicationStatus>;
 }
 
-export function MatchList({ eligible, ineligible, inPipeline }: Props) {
+export function MatchList({ groups, ineligible, inPipeline }: Props) {
   const [pipeline, setPipeline] = useState(inPipeline);
   const [showIneligible, setShowIneligible] = useState(false);
 
+  const totalEligible = groups.reduce((n, g) => n + g.matches.length, 0);
+
+  function handleAdded(id: string) {
+    setPipeline((p) => ({ ...p, [id]: "discovered" }));
+  }
+
   return (
     <>
-      <div className="mt-6 grid gap-4">
-        {eligible.map((r) => (
-          <MatchCard
-            key={r.scholarship.id}
-            match={r}
-            status={pipeline[r.scholarship.id]}
-            onAdded={(id) =>
-              setPipeline((p) => ({ ...p, [id]: "discovered" }))
-            }
-          />
-        ))}
-        {eligible.length === 0 && (
-          <p className="rounded-md border border-dashed border-slate-300 bg-white p-6 text-sm text-slate-600">
-            No matches yet. Try adjusting your interests or GPA on your profile.
-          </p>
-        )}
-      </div>
+      {groups.map((group) => (
+        <section key={group.key} className="mt-8 first:mt-6">
+          <div className="flex items-center gap-3">
+            {group.accentClass && (
+              <span
+                aria-hidden
+                className={`h-5 w-1.5 rounded-full ${group.accentClass}`}
+              />
+            )}
+            <div>
+              <h2 className="text-base font-semibold text-slate-900">
+                {group.title}
+                <span className="ml-2 text-sm font-normal text-slate-500">
+                  ({group.matches.length})
+                </span>
+              </h2>
+              {group.subtitle && (
+                <p className="text-sm text-slate-600">{group.subtitle}</p>
+              )}
+            </div>
+          </div>
+
+          <div className="mt-3 grid gap-4">
+            {group.matches.map((r) => (
+              <MatchCard
+                key={r.scholarship.id}
+                match={r}
+                status={pipeline[r.scholarship.id]}
+                onAdded={handleAdded}
+              />
+            ))}
+            {group.matches.length === 0 && group.emptyState}
+          </div>
+        </section>
+      ))}
+
+      {totalEligible === 0 && groups.every((g) => !g.emptyState) && (
+        <p className="mt-6 rounded-md border border-dashed border-slate-300 bg-white p-6 text-sm text-slate-600">
+          No matches yet. Try adjusting your interests or GPA on your profile.
+        </p>
+      )}
 
       {ineligible.length > 0 && (
         <div className="mt-10">
@@ -53,9 +99,7 @@ export function MatchList({ eligible, ineligible, inPipeline }: Props) {
                   key={r.scholarship.id}
                   match={r}
                   status={pipeline[r.scholarship.id]}
-                  onAdded={(id) =>
-                    setPipeline((p) => ({ ...p, [id]: "discovered" }))
-                  }
+                  onAdded={handleAdded}
                 />
               ))}
             </div>
