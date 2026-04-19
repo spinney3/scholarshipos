@@ -52,11 +52,137 @@ export function VaultEssayEditor({
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [exportMsg, setExportMsg] = useState<string | null>(null);
 
   const wordCount = useMemo(() => {
     const m = content.trim().match(/\S+/g);
     return m ? m.length : 0;
   }, [content]);
+
+  /**
+   * Export helpers. All four modes are dependency-free and client-side so a
+   * student can grab their work even if the backend is wobbly:
+   *   - copy: Clipboard API
+   *   - txt:  Blob download with .txt extension
+   *   - doc:  HTML wrapped with application/msword MIME — Word, Pages, and
+   *           Google Docs all open it cleanly. Not a "real" .docx but
+   *           indistinguishable for an essay with no images/tables.
+   *   - pdf:  Open a print-friendly window and call window.print(); the
+   *           browser's print dialog offers "Save as PDF" on every OS.
+   */
+  const exportFilename = useMemo(() => {
+    const safe = (title.trim() || "essay")
+      .replace(/[^a-z0-9]+/gi, "-")
+      .replace(/^-+|-+$/g, "")
+      .toLowerCase()
+      .slice(0, 60);
+    return safe || "essay";
+  }, [title]);
+
+  function flashExportMsg(msg: string) {
+    setExportMsg(msg);
+    window.setTimeout(() => setExportMsg(null), 1800);
+  }
+
+  async function exportCopy() {
+    try {
+      await navigator.clipboard.writeText(content);
+      flashExportMsg("Copied to clipboard");
+    } catch {
+      flashExportMsg("Copy failed — select and copy manually");
+    }
+  }
+
+  function downloadBlob(blob: Blob, filename: string) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    // Safari needs a tick before revoke.
+    window.setTimeout(() => URL.revokeObjectURL(url), 250);
+  }
+
+  function exportTxt() {
+    const header = title.trim() ? `${title.trim()}\n\n` : "";
+    const blob = new Blob([header + content], { type: "text/plain" });
+    downloadBlob(blob, `${exportFilename}.txt`);
+    flashExportMsg("Downloaded .txt");
+  }
+
+  function exportDoc() {
+    const escape = (s: string) =>
+      s
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+    const paragraphs = content
+      .split(/\n{2,}/)
+      .map((p) => `<p>${escape(p).replace(/\n/g, "<br/>")}</p>`)
+      .join("\n");
+    const html = `<!DOCTYPE html>
+<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
+<head>
+<meta charset="utf-8"/>
+<title>${escape(title.trim() || "Essay")}</title>
+<style>
+  body { font-family: Calibri, Arial, sans-serif; font-size: 11pt; line-height: 1.6; }
+  h1 { font-size: 16pt; margin: 0 0 16pt 0; }
+  p  { margin: 0 0 10pt 0; }
+</style>
+</head>
+<body>
+${title.trim() ? `<h1>${escape(title.trim())}</h1>` : ""}
+${paragraphs}
+</body>
+</html>`;
+    const blob = new Blob(["\ufeff", html], { type: "application/msword" });
+    downloadBlob(blob, `${exportFilename}.doc`);
+    flashExportMsg("Downloaded .doc");
+  }
+
+  function exportPdf() {
+    const escape = (s: string) =>
+      s
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+    const paragraphs = content
+      .split(/\n{2,}/)
+      .map((p) => `<p>${escape(p).replace(/\n/g, "<br/>")}</p>`)
+      .join("\n");
+    const w = window.open("", "_blank", "width=720,height=900");
+    if (!w) {
+      flashExportMsg("Pop-up blocked — allow pop-ups to export PDF");
+      return;
+    }
+    w.document.write(`<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8"/>
+<title>${escape(title.trim() || "Essay")}</title>
+<style>
+  @page { margin: 1in; }
+  body { font-family: Georgia, "Times New Roman", serif; font-size: 12pt; line-height: 1.6; color: #111; max-width: 680px; margin: 0 auto; padding: 32px 24px; }
+  h1 { font-size: 20pt; margin: 0 0 24px 0; }
+  p  { margin: 0 0 12px 0; }
+  @media print { body { padding: 0; } }
+</style>
+</head>
+<body>
+${title.trim() ? `<h1>${escape(title.trim())}</h1>` : ""}
+${paragraphs}
+<script>
+  window.addEventListener('load', function() {
+    setTimeout(function() { window.focus(); window.print(); }, 120);
+  });
+</script>
+</body>
+</html>`);
+    w.document.close();
+  }
 
   async function handleSave() {
     setSaving(true);
@@ -128,7 +254,7 @@ export function VaultEssayEditor({
         />
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-[200px_1fr]">
+      <div className="grid gap-4 md:grid-cols-[200px_1fr]">
         <div>
           <label className="block text-xs font-medium text-slate-700">
             Prompt type
@@ -208,6 +334,52 @@ export function VaultEssayEditor({
               </li>
             ))}
           </ul>
+        </div>
+      )}
+
+      {content.trim().length > 0 && (
+        <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-3">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-xs font-medium text-slate-700">Export</p>
+              <p className="text-xs text-slate-500">
+                Grab your essay in any format — always your words, always yours.
+              </p>
+            </div>
+            {exportMsg && (
+              <span className="text-xs text-emerald-700">{exportMsg}</span>
+            )}
+          </div>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={exportCopy}
+              className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
+            >
+              Copy
+            </button>
+            <button
+              type="button"
+              onClick={exportTxt}
+              className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
+            >
+              Download .txt
+            </button>
+            <button
+              type="button"
+              onClick={exportDoc}
+              className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
+            >
+              Download .doc (Word)
+            </button>
+            <button
+              type="button"
+              onClick={exportPdf}
+              className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
+            >
+              Save as PDF
+            </button>
+          </div>
         </div>
       )}
 

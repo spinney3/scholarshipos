@@ -29,7 +29,7 @@ export function KanbanColumn({ status, title, applications, onDelete }: Props) {
   return (
     <div
       ref={setNodeRef}
-      className={`flex-shrink-0 w-72 rounded-lg border transition-colors ${
+      className={`flex-shrink-0 w-[85vw] max-w-xs sm:w-72 snap-start rounded-lg border transition-colors ${
         isOver ? "border-brand-500" : "border-slate-200"
       } ${COLUMN_TINT[status]}`}
     >

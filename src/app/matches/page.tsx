@@ -2,8 +2,10 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { matchScholarships } from "@/lib/matching";
+import { hasLocalCoverage } from "@/lib/scraper/zipMapping";
 import type { Application, Profile, Scholarship } from "@/lib/types";
 import { MatchList } from "@/components/MatchList";
+import { ScanningBanner } from "@/components/ScanningBanner";
 
 export const dynamic = "force-dynamic";
 
@@ -28,7 +30,13 @@ export default async function MatchesPage() {
 
   // All scholarships + the user's existing applications
   const [{ data: scholarships }, { data: applications }] = await Promise.all([
-    supabase.from("scholarships").select("*").order("deadline", { ascending: true }),
+    // nullsFirst: false so scraped rows without a listed deadline sort to the
+    // bottom of /matches rather than crowding the top. Dated scholarships —
+    // which carry real urgency signal — stay at the front of the list.
+    supabase
+      .from("scholarships")
+      .select("*")
+      .order("deadline", { ascending: true, nullsFirst: false }),
     supabase.from("applications").select("id, scholarship_id, status").eq("user_id", user.id),
   ]);
 
@@ -40,6 +48,14 @@ export default async function MatchesPage() {
 
   const eligible = results.filter((r) => !r.disqualified);
   const ineligible = results.filter((r) => r.disqualified);
+
+  // Show the "scanning for local scholarships" banner only when:
+  //   1. The student's ZIP has coverage from a community foundation, AND
+  //   2. No local scholarships are visible yet (seed-only results).
+  // This window closes as soon as the scraper's first writes land and the
+  // page is refreshed.
+  const hasAnyLocal = results.some((r) => r.scholarship.source === "local");
+  const showScanningBanner = hasLocalCoverage(profile.zip_code) && !hasAnyLocal;
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-8">
@@ -65,6 +81,8 @@ export default async function MatchesPage() {
           Edit profile
         </Link>
       </header>
+
+      {showScanningBanner && <ScanningBanner />}
 
       <MatchList
         eligible={eligible}

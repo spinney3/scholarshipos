@@ -103,6 +103,20 @@ export function OnboardingWizard({ initial }: Props) {
       return;
     }
 
+    // Fire-and-forget: trigger a targeted scrape for this student's region.
+    // The server route enforces the 6h cache, so a classroom of students
+    // onboarding back-to-back won't thrash the same foundations. We
+    // intentionally do NOT await — onboarding shouldn't block 15-30s on
+    // Playwright + Claude. The scraper writes to Supabase as it finishes,
+    // and the next /matches load (or a manual refresh) picks up results.
+    //
+    // `keepalive: true` ensures the fetch completes even though we're
+    // navigating to /matches immediately after.
+    fetch("/api/scrape/zip", { method: "POST", keepalive: true }).catch(() => {
+      // Intentionally swallow — a failed local-scrape trigger should never
+      // block the student from reaching their matches page.
+    });
+
     router.push("/matches");
     router.refresh();
   }

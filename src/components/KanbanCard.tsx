@@ -20,12 +20,17 @@ export function KanbanCard({ app, dragging, onDelete }: Props) {
     opacity: isDragging ? 0.4 : 1,
   };
 
-  const deadline = new Date(app.scholarship.deadline);
-  const daysUntil = Math.round(
-    (deadline.getTime() - Date.now()) / (1000 * 60 * 60 * 24),
-  );
-  const urgent = daysUntil >= 0 && daysUntil <= 30;
-  const past = daysUntil < 0;
+  // Deadline may be null for scraped community-foundation rows that list
+  // scholarship names without per-award dates — render "No date listed"
+  // and skip urgency/past styling.
+  const deadline = app.scholarship.deadline
+    ? new Date(app.scholarship.deadline)
+    : null;
+  const daysUntil = deadline
+    ? Math.round((deadline.getTime() - Date.now()) / (1000 * 60 * 60 * 24))
+    : null;
+  const urgent = daysUntil !== null && daysUntil >= 0 && daysUntil <= 30;
+  const past = daysUntil !== null && daysUntil < 0;
 
   return (
     <article
@@ -42,27 +47,45 @@ export function KanbanCard({ app, dragging, onDelete }: Props) {
           {app.scholarship.title}
         </h4>
         <span className="shrink-0 text-xs font-semibold text-slate-700">
-          ${app.scholarship.amount.toLocaleString()}
+          {app.scholarship.amount > 0
+            ? `$${app.scholarship.amount.toLocaleString()}`
+            : "Varies"}
         </span>
       </div>
       <p className="mt-0.5 text-xs text-slate-500 truncate">
         {app.scholarship.provider}
+        {app.scholarship.source === "local" && (
+          <span
+            className="ml-1.5 inline-block text-[10px] uppercase tracking-wide rounded-full bg-emerald-50 text-emerald-700 px-1.5 py-0.5 font-medium align-middle"
+            title="Local community foundation scholarship"
+          >
+            Local
+          </span>
+        )}
       </p>
       <div className="mt-2 flex items-center justify-between text-xs">
         <span
           className={
-            past
-              ? "text-slate-400"
-              : urgent
-                ? "text-rose-600 font-medium"
-                : "text-slate-500"
+            !deadline
+              ? "text-slate-400 italic"
+              : past
+                ? "text-slate-400"
+                : urgent
+                  ? "text-rose-600 font-medium"
+                  : "text-slate-500"
           }
         >
-          {deadline.toLocaleDateString(undefined, {
-            month: "short",
-            day: "numeric",
-          })}
-          {past ? " · closed" : urgent ? ` · ${daysUntil}d left` : ""}
+          {deadline ? (
+            <>
+              {deadline.toLocaleDateString(undefined, {
+                month: "short",
+                day: "numeric",
+              })}
+              {past ? " · closed" : urgent ? ` · ${daysUntil}d left` : ""}
+            </>
+          ) : (
+            "No date listed"
+          )}
         </span>
         <div className="flex items-center gap-2">
           <Link

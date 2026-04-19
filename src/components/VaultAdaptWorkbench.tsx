@@ -11,6 +11,10 @@ import {
   VAULT_PROMPT_TYPE_LABELS,
   VAULT_PROMPT_TYPE_OPTIONS,
 } from "@/lib/types";
+import type { ClaudeErrorCode } from "@/lib/anthropic";
+import { ClaudeErrorBanner } from "./ClaudeErrorBanner";
+
+type GuidanceError = { code?: ClaudeErrorCode; message: string };
 
 /**
  * Client-side workbench for the Adapt flow.
@@ -32,7 +36,7 @@ export function VaultAdaptWorkbench() {
   const [selectedIdx, setSelectedIdx] = useState<number | null>(null);
   const [guidance, setGuidance] = useState<AdaptationGuidance | null>(null);
   const [loadingGuidance, setLoadingGuidance] = useState(false);
-  const [guidanceError, setGuidanceError] = useState<string | null>(null);
+  const [guidanceError, setGuidanceError] = useState<GuidanceError | null>(null);
 
   // Debounced ranking call
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -103,11 +107,24 @@ export function VaultAdaptWorkbench() {
           prompt_text: promptText,
         }),
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error ?? "Adaptation failed");
+      const json = await res.json().catch(() => ({} as Record<string, unknown>));
+      if (!res.ok) {
+        const code =
+          typeof (json as { code?: unknown }).code === "string"
+            ? ((json as { code: ClaudeErrorCode }).code)
+            : undefined;
+        const message =
+          (typeof (json as { error?: unknown }).error === "string"
+            ? (json as { error: string }).error
+            : undefined) ?? "Adaptation failed";
+        setGuidanceError({ code, message });
+        return;
+      }
       setGuidance(json.guidance as AdaptationGuidance);
     } catch (e) {
-      setGuidanceError(e instanceof Error ? e.message : "Adaptation failed");
+      setGuidanceError({
+        message: e instanceof Error ? e.message : "Adaptation failed",
+      });
     } finally {
       setLoadingGuidance(false);
     }
@@ -296,7 +313,7 @@ function SelectedEssayPanel({
   onAdapt: () => void;
   loadingGuidance: boolean;
   guidance: AdaptationGuidance | null;
-  guidanceError: string | null;
+  guidanceError: GuidanceError | null;
   newPromptText: string;
   newPromptType: VaultPromptType;
 }) {
@@ -358,9 +375,10 @@ function SelectedEssayPanel({
       </div>
 
       {guidanceError && (
-        <p className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">
-          {guidanceError}
-        </p>
+        <ClaudeErrorBanner
+          code={guidanceError.code}
+          message={guidanceError.message}
+        />
       )}
 
       {guidance && <GuidancePanel guidance={guidance} />}

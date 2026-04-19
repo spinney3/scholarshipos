@@ -9,6 +9,10 @@ import type {
   Scholarship,
 } from "@/lib/types";
 import { INTERVIEW_TARGET_QUESTIONS } from "@/lib/types";
+import type { ClaudeErrorCode } from "@/lib/anthropic";
+import { ClaudeApiError, ClaudeErrorBanner } from "./ClaudeErrorBanner";
+
+type CoachError = { code?: ClaudeErrorCode; message: string };
 
 interface Props {
   application: Application;
@@ -38,7 +42,7 @@ export function EssayCoach({
   const [essay, setEssay] = useState<Essay | null>(initialEssay);
   const [drafts, setDrafts] = useState<EssayDraft[]>(initialDrafts);
   const [busy, setBusy] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<CoachError | null>(null);
 
   const latestDraft = drafts[0] ?? null;
 
@@ -48,11 +52,27 @@ export function EssayCoach({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
-    const json = await res.json();
+    const json = await res.json().catch(() => ({} as Record<string, unknown>));
     if (!res.ok) {
-      throw new Error(json?.error ?? `Request failed: ${res.status}`);
+      const code =
+        typeof (json as { code?: unknown }).code === "string"
+          ? ((json as { code: ClaudeErrorCode }).code)
+          : undefined;
+      const message =
+        (typeof (json as { error?: unknown }).error === "string"
+          ? (json as { error: string }).error
+          : undefined) ?? `Request failed: ${res.status}`;
+      throw new ClaudeApiError(message, code);
     }
     return json as T;
+  }
+
+  function captureError(e: unknown) {
+    if (e instanceof ClaudeApiError) {
+      setError({ code: e.code, message: e.message });
+    } else {
+      setError({ message: e instanceof Error ? e.message : String(e) });
+    }
   }
 
   async function handleStart() {
@@ -65,7 +85,7 @@ export function EssayCoach({
       );
       setEssay(created);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      captureError(e);
     } finally {
       setBusy(null);
     }
@@ -82,7 +102,7 @@ export function EssayCoach({
       }>("/api/essay/answer", { essayId: essay.id, answer });
       setEssay(updated);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      captureError(e);
     } finally {
       setBusy(null);
     }
@@ -100,7 +120,7 @@ export function EssayCoach({
       setEssay(updated);
       setDrafts((d) => [draft, ...d]);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      captureError(e);
     } finally {
       setBusy(null);
     }
@@ -120,7 +140,7 @@ export function EssayCoach({
         setEssay((e) => (e ? { ...e, status: "final" } : e));
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      captureError(e);
     } finally {
       setBusy(null);
     }
@@ -129,9 +149,11 @@ export function EssayCoach({
   return (
     <div className="space-y-4">
       {error && (
-        <div className="rounded-md bg-red-50 border border-red-200 p-3 text-sm text-red-700">
-          {error}
-        </div>
+        <ClaudeErrorBanner
+          code={error.code}
+          message={error.message}
+          onDismiss={() => setError(null)}
+        />
       )}
 
       {!essay && (

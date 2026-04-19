@@ -126,7 +126,11 @@ export function KanbanBoard({ initialApplications }: Props) {
           onDragStart={handleDragStart}
           onDragEnd={handleDragEnd}
         >
-          <div className="flex gap-4 overflow-x-auto pb-4">
+          {/* Horizontal scroll container. On phones we shrink each column
+              to ~85vw and add CSS scroll-snap so swipes settle cleanly on
+              one column at a time (the default w-72 made 6 columns feel
+              unscrollable under 768px). */}
+          <div className="flex gap-4 overflow-x-auto pb-4 snap-x snap-mandatory -mx-4 px-4 scroll-smooth">
             {APPLICATION_STATUSES.map((status) => (
               <KanbanColumn
                 key={status}
@@ -137,6 +141,9 @@ export function KanbanBoard({ initialApplications }: Props) {
               />
             ))}
           </div>
+          <p className="sm:hidden -mt-2 text-xs text-slate-500">
+            Swipe sideways to see all six columns →
+          </p>
 
           <DragOverlay>
             {activeApp ? <KanbanCard app={activeApp} dragging /> : null}

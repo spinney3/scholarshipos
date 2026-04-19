@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { ESSAY_MODEL, getAnthropic } from "@/lib/anthropic";
+import { ESSAY_MODEL, classifyClaudeError, getAnthropic } from "@/lib/anthropic";
 import {
   draftSystemPrompt,
   draftUserMessage,
@@ -89,9 +89,11 @@ export async function POST(req: Request) {
     outline = parsed.outline;
     draft = parsed.draft;
   } catch (e) {
-    const message =
-      e instanceof Error ? e.message : "Failed to generate draft";
-    return NextResponse.json({ error: message }, { status: 502 });
+    const c = classifyClaudeError(e);
+    return NextResponse.json(
+      { error: c.message, code: c.code },
+      { status: c.status },
+    );
   }
 
   // Determine next version number for this essay.

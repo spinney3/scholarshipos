@@ -35,9 +35,12 @@ function evaluate(
   const reasons: string[] = [];
   const disqualifiers: string[] = [];
 
-  // 1. Deadline must not be in the past
-  const deadline = new Date(s.deadline);
-  if (deadline < today) {
+  // 1. Deadline must not be in the past — unless it's unlisted (null),
+  //    which is common for scraped community foundation catalog pages that
+  //    name scholarships without publishing per-award dates. We still surface
+  //    these rows (not a disqualifier) but skip urgency scoring below.
+  const deadline = s.deadline ? new Date(s.deadline) : null;
+  if (deadline && deadline < today) {
     disqualifiers.push("Deadline has passed");
   }
 
@@ -48,13 +51,21 @@ function evaluate(
     );
   }
 
-  // 3. ZIP scope: national always OK; zip-scoped scholarships require a matching 3-digit prefix
+  // 3. ZIP scope: national always OK. Otherwise, zip-scoped scholarships
+  //    require a matching 3-digit prefix. The `val` portion of a zip scope
+  //    may carry a single ZIP ("94301") or a comma-separated list of ZIPs
+  //    or prefixes ("94110,94301,94501") — the latter is how Phase 3.5
+  //    scraper sources express their full multi-metro coverage area.
   if (s.zip_scope !== "national") {
     const [kind, val] = s.zip_scope.split(":");
     if (kind === "zip" && profile.zip_code) {
       const studentPrefix = profile.zip_code.slice(0, 3);
-      const scholarshipPrefix = val.slice(0, 3);
-      if (studentPrefix !== scholarshipPrefix) {
+      const scholarshipPrefixes = val
+        .split(",")
+        .map((z) => z.trim().slice(0, 3))
+        .filter(Boolean);
+      const matched = scholarshipPrefixes.includes(studentPrefix);
+      if (!matched) {
         disqualifiers.push(`Restricted to ${val} area`);
       } else {
         reasons.push("Local scholarship in your area");
@@ -82,12 +93,15 @@ function evaluate(
     if (headroom >= 0.5) score += 5;
   }
 
-  // Upcoming deadline within 60 days: urgency bump
-  const daysUntil = Math.round(
-    (deadline.getTime() - today.getTime()) / (1000 * 60 * 60 * 24),
-  );
-  if (daysUntil >= 0 && daysUntil <= 60) {
-    reasons.push(`Deadline in ${daysUntil} day${daysUntil === 1 ? "" : "s"}`);
+  // Upcoming deadline within 60 days: urgency bump. Skip for null-deadline
+  // rows (scraped catalog entries without a listed date).
+  if (deadline) {
+    const daysUntil = Math.round(
+      (deadline.getTime() - today.getTime()) / (1000 * 60 * 60 * 24),
+    );
+    if (daysUntil >= 0 && daysUntil <= 60) {
+      reasons.push(`Deadline in ${daysUntil} day${daysUntil === 1 ? "" : "s"}`);
+    }
   }
 
   // Dollar value: small bonus for large awards

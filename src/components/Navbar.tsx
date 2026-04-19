@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { SignOutButton } from "./SignOutButton";
+import { NavbarMobileMenu } from "./NavbarMobileMenu";
 
 export async function Navbar() {
   const supabase = createClient();
@@ -9,7 +10,7 @@ export async function Navbar() {
   } = await supabase.auth.getUser();
 
   return (
-    <header className="bg-white border-b border-slate-200">
+    <header className="relative bg-white border-b border-slate-200">
       <nav className="mx-auto max-w-6xl px-4 h-14 flex items-center justify-between">
         <Link
           href={user ? "/matches" : "/"}
@@ -17,7 +18,9 @@ export async function Navbar() {
         >
           ScholarshipOS
         </Link>
-        <div className="flex items-center gap-4 text-sm">
+
+        {/* Desktop links — hidden under sm breakpoint */}
+        <div className="hidden sm:flex items-center gap-4 text-sm">
           {user ? (
             <>
               <Link
@@ -63,6 +66,9 @@ export async function Navbar() {
             </>
           )}
         </div>
+
+        {/* Mobile hamburger — visible only under sm breakpoint */}
+        <NavbarMobileMenu signedIn={!!user} />
       </nav>
     </header>
   );

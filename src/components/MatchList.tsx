@@ -102,29 +102,50 @@ function MatchCard({
     startTransition(() => router.refresh());
   }
 
-  const deadline = new Date(s.deadline);
-  const daysUntil = Math.round(
-    (deadline.getTime() - Date.now()) / (1000 * 60 * 60 * 24),
-  );
+  // Scraped rows from community foundation catalog pages often lack a
+  // per-award deadline. Render "Deadline varies" and skip the days-remaining
+  // pill in that case rather than dropping the row.
+  const deadline = s.deadline ? new Date(s.deadline) : null;
+  const daysUntil = deadline
+    ? Math.round((deadline.getTime() - Date.now()) / (1000 * 60 * 60 * 24))
+    : null;
 
   return (
     <article className="rounded-lg border border-slate-200 bg-white p-5">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h3 className="font-semibold text-slate-900">{s.title}</h3>
+          <div className="flex items-center gap-2">
+            <h3 className="font-semibold text-slate-900">{s.title}</h3>
+            {s.source === "local" && (
+              <span
+                title="Local scholarship — scraped from a community foundation in your region. These usually have fewer applicants."
+                className="text-[11px] uppercase tracking-wide rounded-full bg-emerald-50 text-emerald-700 px-2 py-0.5 font-medium"
+              >
+                Local
+              </span>
+            )}
+          </div>
           <p className="text-sm text-slate-600">{s.provider}</p>
         </div>
         <div className="text-right">
           <div className="text-lg font-semibold text-slate-900">
-            ${s.amount.toLocaleString()}
+            {s.amount > 0 ? `$${s.amount.toLocaleString()}` : "Varies"}
           </div>
           <div className="text-xs text-slate-500">
-            {deadline.toLocaleDateString(undefined, {
-              month: "short",
-              day: "numeric",
-              year: "numeric",
-            })}
-            {daysUntil >= 0 ? ` · ${daysUntil}d` : " · closed"}
+            {deadline ? (
+              <>
+                {deadline.toLocaleDateString(undefined, {
+                  month: "short",
+                  day: "numeric",
+                  year: "numeric",
+                })}
+                {daysUntil !== null && daysUntil >= 0
+                  ? ` · ${daysUntil}d`
+                  : " · closed"}
+              </>
+            ) : (
+              <span className="italic">Deadline varies</span>
+            )}
           </div>
         </div>
       </div>
@@ -157,11 +178,11 @@ function MatchCard({
         </ul>
       )}
 
-      <div className="mt-4 flex items-center justify-between">
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-y-2">
         <div className="text-xs text-slate-500">
           {!disqualified && `Match score: ${score}`}
         </div>
-        <div className="flex items-center gap-3 text-sm">
+        <div className="flex flex-wrap items-center gap-3 text-sm">
           <a
             href={s.url}
             target="_blank"

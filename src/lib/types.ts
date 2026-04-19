@@ -38,12 +38,32 @@ export interface Profile {
   updated_at: string;
 }
 
+export type ScholarshipSource = "seed" | "local" | "api";
+
+export const SCHOLARSHIP_SOURCE_LABELS: Record<ScholarshipSource, string> = {
+  seed: "National",
+  local: "Local",
+  api: "API",
+};
+
 export interface Scholarship {
   id: string;
   title: string;
   provider: string;
+  /**
+   * USD, integer. 0 means "amount not listed" — community foundation catalog
+   * pages frequently name scholarships without publishing an amount (the
+   * amount varies by cycle or by donor). UI renders these as "Amount varies".
+   */
   amount: number;
-  deadline: string; // ISO date
+  /**
+   * ISO date string, or null when the source's catalog page names the
+   * scholarship but doesn't list a deadline on the index. Per-scholarship
+   * detail pages would have it, but our scraper doesn't currently follow
+   * them (that would double Haiku call volume). Null rows are sorted to the
+   * end of the list and show "Deadline varies — see listing".
+   */
+  deadline: string | null;
   description: string;
   eligibility_summary: string;
   min_gpa: number | null;
@@ -51,6 +71,7 @@ export interface Scholarship {
   zip_scope: string; // 'national' | 'state:CA' | 'zip:94110'
   url: string;
   essay_prompt: string | null;
+  source: ScholarshipSource;
   created_at: string;
 }
 

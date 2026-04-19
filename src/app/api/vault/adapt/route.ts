@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { ESSAY_MODEL, getAnthropic } from "@/lib/anthropic";
+import { ESSAY_MODEL, classifyClaudeError, getAnthropic } from "@/lib/anthropic";
 import {
   adaptSystemPrompt,
   adaptUserMessage,
@@ -105,8 +105,10 @@ export async function POST(req: Request) {
     const guidance = parseAdaptationResponse(text);
     return NextResponse.json({ guidance });
   } catch (e) {
-    const message =
-      e instanceof Error ? e.message : "Failed to generate adaptation guidance";
-    return NextResponse.json({ error: message }, { status: 502 });
+    const c = classifyClaudeError(e);
+    return NextResponse.json(
+      { error: c.message, code: c.code },
+      { status: c.status },
+    );
   }
 }
