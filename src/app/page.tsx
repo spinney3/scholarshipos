@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
+import { SocialShare } from "@/components/SocialShare";
 
 export default async function LandingPage() {
   const supabase = createClient();
@@ -29,17 +30,16 @@ export default async function LandingPage() {
             For high school juniors & seniors
           </span>
           <h1 className="mt-6 text-4xl sm:text-6xl font-bold tracking-tight text-slate-900">
-            Win the scholarship money
-            <br className="hidden sm:block" />
+            The operating system for{" "}
             <span className="bg-gradient-to-r from-brand-600 to-emerald-600 bg-clip-text text-transparent">
-              {" "}you&rsquo;d have missed.
+              winning scholarship money.
             </span>
           </h1>
           <p className="mt-6 text-lg sm:text-xl text-slate-600 max-w-2xl mx-auto">
-            Local community foundations, Rotary clubs, and employer programs give
-            away thousands of small scholarships every year — they almost never
-            show up on Fastweb. ScholarshipOS finds them, matches them to you,
-            and helps you write essays that sound like <em>you</em>.
+            Find the local awards other platforms miss. Upload any scholarship
+            as a URL or PDF and let Claude parse it into your pipeline. Track
+            every application in one place. Write essays that sound like{" "}
+            <em>you</em> — not an AI.
           </p>
           <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
             {signedIn ? (
@@ -93,17 +93,17 @@ export default async function LandingPage() {
             one with 50,000.
           </h2>
           <p className="mt-4 max-w-2xl text-slate-300">
-            National scholarships are the lottery. Local awards are winnable. We
-            crawl community foundations in your ZIP code — Chester County
-            Community Foundation, Phoenixville Community Health Foundation, and
-            more — so every small award your neighbors are quietly winning shows
-            up in your queue too.
+            National scholarships are the lottery. Local awards are winnable.
+            We crawl community foundations in your ZIP code — Chester County
+            Community Foundation, Phoenixville Community Health Foundation,
+            and more — so every small award your neighbors are quietly winning
+            shows up in your queue too.
           </p>
           <dl className="mt-8 grid gap-6 sm:grid-cols-3 text-left">
             <div>
-              <dt className="text-3xl font-bold text-brand-300">~70+</dt>
+              <dt className="text-3xl font-bold text-brand-300">Growing</dt>
               <dd className="mt-1 text-sm text-slate-300">
-                Local PA scholarships already in the index
+                Local scholarship index — expanding every week
               </dd>
             </div>
             <div>
@@ -122,8 +122,50 @@ export default async function LandingPage() {
         </div>
       </section>
 
+      {/* ---------- The walled-garden pivot (manual upload) ---------- */}
+      <section className="mx-auto max-w-5xl px-4 pb-4">
+        <div className="rounded-2xl border border-slate-200 bg-white p-6 sm:p-10">
+          <p className="text-xs font-semibold uppercase tracking-wider text-emerald-600">
+            No walled garden
+          </p>
+          <h2 className="mt-2 text-2xl sm:text-3xl font-bold text-slate-900">
+            Other tools only work if someone already added the scholarship.
+            <br className="hidden sm:block" />
+            <span className="text-brand-600"> This one doesn&rsquo;t.</span>
+          </h2>
+          <p className="mt-4 max-w-3xl text-slate-600">
+            A $500 award from the local VFW. A family foundation&rsquo;s essay
+            contest. Your school district&rsquo;s scholarship bulletin PDF.
+            These live on 1990s-style websites, in email attachments, on
+            bulletin boards — and they <em>never</em> show up on Fastweb,
+            because Fastweb can&rsquo;t scrape what it can&rsquo;t crawl.
+          </p>
+          <p className="mt-4 max-w-3xl text-slate-600">
+            Here, you don&rsquo;t wait for us to find them. Drop in any
+            scholarship URL or PDF — Claude reads it in seconds, pulls out the
+            amount, deadline, eligibility rules, and essay prompt, and drops a
+            tracked card straight into your Kanban pipeline. The obscure $500
+            award gets the same high-tech treatment as the Coca-Cola
+            Scholarship.
+          </p>
+          <p className="mt-4 text-sm text-slate-500">
+            Your uploads stay private to your account. Only you see them.
+          </p>
+          {signedIn ? (
+            <div className="mt-6">
+              <Link
+                href="/scholarships/new"
+                className="inline-flex items-center gap-2 rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
+              >
+                Upload a scholarship →
+              </Link>
+            </div>
+          ) : null}
+        </div>
+      </section>
+
       {/* ---------- How it works ---------- */}
-      <section className="mx-auto max-w-5xl px-4 pb-16">
+      <section className="mx-auto max-w-5xl px-4 py-16">
         <div className="text-center">
           <h2 className="text-3xl font-bold tracking-tight text-slate-900">
             How it works
@@ -142,20 +184,25 @@ export default async function LandingPage() {
           />
           <Step
             number="2"
-            title="See your matches"
-            body="We pull local and national awards, score each one against your profile, and show you the ones you should actually apply to first."
+            title="See your matches — or add your own"
+            body="We pull local and national awards, score each one against your profile, and show you the ones you should apply to first. Found one we didn&rsquo;t? Paste the URL or drop the PDF — we&rsquo;ll parse it."
           />
           <Step
             number="3"
             title="Write & track"
-            body="A Socratic AI coach asks you questions, then helps you shape your answers into your own essay. Every application tracked on a Kanban board."
+            body="A Socratic AI coach asks you questions, then helps you shape your answers into your own essay. Every application tracked on a Kanban board, with deadline reminders by email."
           />
         </ol>
       </section>
 
       {/* ---------- Feature strip ---------- */}
       <section className="mx-auto max-w-5xl px-4 pb-20">
-        <div className="grid gap-4 sm:grid-cols-3">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <Feature
+            accent="bg-emerald-500"
+            title="Upload anything"
+            body="Paste a URL or drop a PDF. Claude parses the rules, amount, deadline, and essay prompt — then adds it to your pipeline."
+          />
           <Feature
             accent="bg-brand-500"
             title="Smart matching"
@@ -167,7 +214,7 @@ export default async function LandingPage() {
             body="Discovered → Eligible → In Progress → Submitted → Won/Lost. Drag and drop. Deadline reminders. Essay vault linked to each card."
           />
           <Feature
-            accent="bg-emerald-500"
+            accent="bg-amber-500"
             title="Local awards"
             body="Community foundations, Rotary, employer programs. The small awards with small applicant pools are where you actually win."
           />
@@ -175,7 +222,7 @@ export default async function LandingPage() {
       </section>
 
       {/* ---------- Ethics / coach-not-ghostwriter ---------- */}
-      <section className="mx-auto max-w-3xl px-4 pb-20 text-center">
+      <section className="mx-auto max-w-3xl px-4 pb-16 text-center">
         <h2 className="text-2xl font-bold tracking-tight text-slate-900">
           A coach, not a ghostwriter.
         </h2>
@@ -186,6 +233,11 @@ export default async function LandingPage() {
           your actual experience, and helps you structure <em>your own</em>{" "}
           words into something a human reader will remember.
         </p>
+      </section>
+
+      {/* ---------- Share row ---------- */}
+      <section className="mx-auto max-w-3xl px-4 pb-20">
+        <SocialShare />
       </section>
 
       {/* ---------- Final CTA ---------- */}
