@@ -33,6 +33,15 @@ export interface Profile {
   zip_code: string | null;
   interests: string[];
   financial_need: FinancialNeed | null;
+  // Social / outreach fields (migration 006). Both college/major are optional
+  // free-text for now — eventually we may normalize intended_college against
+  // a school list so the peers view can bucket cleanly.
+  intended_college: string | null;
+  intended_major: string | null;
+  // Opt-in for product/marketing emails. Default TRUE on new onboarders so
+  // Shawn can reach students for scholarship digests, upgrade news, etc.
+  // Students can uncheck during onboarding or edit later from /onboarding.
+  allow_marketing_emails: boolean;
   onboarded: boolean;
   created_at: string;
   updated_at: string;

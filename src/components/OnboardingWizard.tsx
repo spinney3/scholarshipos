@@ -9,7 +9,13 @@ import {
   type Profile,
 } from "@/lib/types";
 
-const STEPS = ["Basics", "Academics", "Interests", "Financial Need"] as const;
+const STEPS = [
+  "Basics",
+  "Academics",
+  "College Plans",
+  "Interests",
+  "Financial Need",
+] as const;
 
 interface Props {
   initial: Profile | null;
@@ -28,6 +34,15 @@ export function OnboardingWizard({ initial }: Props) {
       : "",
   );
   const [zip, setZip] = useState(initial?.zip_code ?? "");
+  const [intendedCollege, setIntendedCollege] = useState(
+    initial?.intended_college ?? "",
+  );
+  const [intendedMajor, setIntendedMajor] = useState(
+    initial?.intended_major ?? "",
+  );
+  const [allowMarketingEmails, setAllowMarketingEmails] = useState<boolean>(
+    initial?.allow_marketing_emails ?? true,
+  );
   const [interests, setInterests] = useState<string[]>(
     initial?.interests ?? [],
   );
@@ -51,9 +66,12 @@ export function OnboardingWizard({ initial }: Props) {
       if (!/^\d{5}$/.test(zip)) return "Enter a 5-digit ZIP code.";
     }
     if (step === 2) {
-      if (interests.length === 0) return "Pick at least one interest.";
+      // College plans step — both fields optional. No-op.
     }
     if (step === 3) {
+      if (interests.length === 0) return "Pick at least one interest.";
+    }
+    if (step === 4) {
       if (!need) return "Select your financial need level.";
     }
     return null;
@@ -91,6 +109,9 @@ export function OnboardingWizard({ initial }: Props) {
         full_name: fullName.trim(),
         gpa: parseFloat(gpa),
         zip_code: zip,
+        intended_college: intendedCollege.trim() || null,
+        intended_major: intendedMajor.trim() || null,
+        allow_marketing_emails: allowMarketingEmails,
         interests,
         financial_need: need,
         onboarded: true,
@@ -103,19 +124,11 @@ export function OnboardingWizard({ initial }: Props) {
       return;
     }
 
-    // Fire-and-forget: trigger a targeted scrape for this student's region.
-    // The server route enforces the 6h cache, so a classroom of students
-    // onboarding back-to-back won't thrash the same foundations. We
-    // intentionally do NOT await — onboarding shouldn't block 15-30s on
-    // Playwright + Claude. The scraper writes to Supabase as it finishes,
-    // and the next /matches load (or a manual refresh) picks up results.
-    //
-    // `keepalive: true` ensures the fetch completes even though we're
-    // navigating to /matches immediately after.
-    fetch("/api/scrape/zip", { method: "POST", keepalive: true }).catch(() => {
-      // Intentionally swallow — a failed local-scrape trigger should never
-      // block the student from reaching their matches page.
-    });
+    // Live scraping is now handled out-of-band by a local weekly job that
+    // Shawn runs and commits back to the seeded catalog. The onboarding
+    // path intentionally doesn't trigger a per-student scrape anymore —
+    // Vercel's Hobby 10s function cap made the live path unreliable, and
+    // the catalog is now the canonical source of local scholarships.
 
     router.push("/matches");
     router.refresh();
@@ -138,12 +151,22 @@ export function OnboardingWizard({ initial }: Props) {
           />
         )}
         {step === 2 && (
+          <StepCollegePlans
+            college={intendedCollege}
+            major={intendedMajor}
+            allowEmails={allowMarketingEmails}
+            onCollege={setIntendedCollege}
+            onMajor={setIntendedMajor}
+            onAllowEmails={setAllowMarketingEmails}
+          />
+        )}
+        {step === 3 && (
           <StepInterests
             selected={interests}
             onToggle={toggleInterest}
           />
         )}
-        {step === 3 && <StepFinancial value={need} onChange={setNeed} />}
+        {step === 4 && <StepFinancial value={need} onChange={setNeed} />}
 
         {error && (
           <p className="mt-4 text-sm text-red-600" role="alert">
@@ -278,6 +301,75 @@ function StepAcademics({
           />
         </div>
       </div>
+    </div>
+  );
+}
+
+function StepCollegePlans({
+  college,
+  major,
+  allowEmails,
+  onCollege,
+  onMajor,
+  onAllowEmails,
+}: {
+  college: string;
+  major: string;
+  allowEmails: boolean;
+  onCollege: (v: string) => void;
+  onMajor: (v: string) => void;
+  onAllowEmails: (v: boolean) => void;
+}) {
+  return (
+    <div>
+      <h2 className="font-medium text-slate-900">College plans</h2>
+      <p className="text-sm text-slate-600">
+        Optional, but lets us match you with peers heading to the same schools
+        and majors (and surface scholarships tied to specific universities).
+      </p>
+      <div className="mt-4 grid gap-4 sm:grid-cols-2">
+        <div>
+          <label className="block text-sm font-medium text-slate-700">
+            Intended college
+          </label>
+          <input
+            value={college}
+            onChange={(e) => onCollege(e.target.value)}
+            className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-brand-500 focus:ring-brand-500"
+            placeholder="Penn State"
+          />
+          <p className="mt-1 text-xs text-slate-500">
+            Leave blank if you're still deciding.
+          </p>
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-slate-700">
+            Intended major
+          </label>
+          <input
+            value={major}
+            onChange={(e) => onMajor(e.target.value)}
+            className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-brand-500 focus:ring-brand-500"
+            placeholder="Biomedical engineering"
+          />
+          <p className="mt-1 text-xs text-slate-500">Undecided is fine too.</p>
+        </div>
+      </div>
+      <label className="mt-6 flex items-start gap-3 rounded-md border border-slate-200 bg-slate-50 p-3 cursor-pointer">
+        <input
+          type="checkbox"
+          checked={allowEmails}
+          onChange={(e) => onAllowEmails(e.target.checked)}
+          className="mt-0.5 h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
+        />
+        <span className="text-sm text-slate-700">
+          <span className="font-medium text-slate-900">
+            OK to email me occasional updates.
+          </span>{" "}
+          New scholarships in your region, product updates, and (someday)
+          upgrade news. No spam, unsubscribe anytime.
+        </span>
+      </label>
     </div>
   );
 }

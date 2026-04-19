@@ -13,7 +13,7 @@ export async function Navbar() {
     <header className="relative bg-white border-b border-slate-200">
       <nav className="mx-auto max-w-6xl px-4 h-14 flex items-center justify-between">
         <Link
-          href={user ? "/matches" : "/"}
+          href="/"
           className="font-semibold text-lg tracking-tight text-slate-900"
         >
           ScholarshipOS

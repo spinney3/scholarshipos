@@ -1,6 +1,5 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
-import { redirect } from "next/navigation";
 
 export default async function LandingPage() {
   const supabase = createClient();
@@ -8,9 +7,7 @@ export default async function LandingPage() {
     data: { user },
   } = await supabase.auth.getUser();
 
-  if (user) {
-    redirect("/matches");
-  }
+  const signedIn = !!user;
 
   return (
     <>
@@ -45,22 +42,43 @@ export default async function LandingPage() {
             and helps you write essays that sound like <em>you</em>.
           </p>
           <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
-            <Link
-              href="/signup"
-              className="rounded-md bg-brand-500 px-6 py-3 text-white text-base font-semibold shadow-sm hover:bg-brand-600"
-            >
-              Start for free
-            </Link>
-            <Link
-              href="/login"
-              className="rounded-md border border-slate-300 bg-white px-6 py-3 text-slate-700 text-base font-medium hover:bg-slate-50"
-            >
-              I already have an account
-            </Link>
+            {signedIn ? (
+              <>
+                <Link
+                  href="/matches"
+                  className="rounded-md bg-brand-500 px-6 py-3 text-white text-base font-semibold shadow-sm hover:bg-brand-600"
+                >
+                  Go to your matches →
+                </Link>
+                <Link
+                  href="/kanban"
+                  className="rounded-md border border-slate-300 bg-white px-6 py-3 text-slate-700 text-base font-medium hover:bg-slate-50"
+                >
+                  Open pipeline
+                </Link>
+              </>
+            ) : (
+              <>
+                <Link
+                  href="/signup"
+                  className="rounded-md bg-brand-500 px-6 py-3 text-white text-base font-semibold shadow-sm hover:bg-brand-600"
+                >
+                  Start for free
+                </Link>
+                <Link
+                  href="/login"
+                  className="rounded-md border border-slate-300 bg-white px-6 py-3 text-slate-700 text-base font-medium hover:bg-slate-50"
+                >
+                  I already have an account
+                </Link>
+              </>
+            )}
           </div>
-          <p className="mt-4 text-xs text-slate-500">
-            No credit card required. Your first essay coaching cycle is free.
-          </p>
+          {!signedIn && (
+            <p className="mt-4 text-xs text-slate-500">
+              No credit card required. Your first essay coaching cycle is free.
+            </p>
+          )}
         </div>
       </section>
 
@@ -171,24 +189,26 @@ export default async function LandingPage() {
       </section>
 
       {/* ---------- Final CTA ---------- */}
-      <section className="mx-auto max-w-3xl px-4 pb-24 text-center">
-        <div className="rounded-2xl border border-slate-200 bg-white p-8 shadow-sm">
-          <h2 className="text-2xl sm:text-3xl font-bold text-slate-900">
-            Your first essay coaching cycle is free.
-          </h2>
-          <p className="mt-3 text-slate-600">
-            No credit card. No cap on scholarships you can browse or track.
-          </p>
-          <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
-            <Link
-              href="/signup"
-              className="rounded-md bg-brand-500 px-6 py-3 text-white text-base font-semibold shadow-sm hover:bg-brand-600"
-            >
-              Create your profile
-            </Link>
+      {!signedIn && (
+        <section className="mx-auto max-w-3xl px-4 pb-24 text-center">
+          <div className="rounded-2xl border border-slate-200 bg-white p-8 shadow-sm">
+            <h2 className="text-2xl sm:text-3xl font-bold text-slate-900">
+              Your first essay coaching cycle is free.
+            </h2>
+            <p className="mt-3 text-slate-600">
+              No credit card. No cap on scholarships you can browse or track.
+            </p>
+            <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
+              <Link
+                href="/signup"
+                className="rounded-md bg-brand-500 px-6 py-3 text-white text-base font-semibold shadow-sm hover:bg-brand-600"
+              >
+                Create your profile
+              </Link>
+            </div>
           </div>
-        </div>
-      </section>
+        </section>
+      )}
     </>
   );
 }
