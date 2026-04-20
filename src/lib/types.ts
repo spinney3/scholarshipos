@@ -31,6 +31,13 @@ export interface Profile {
   full_name: string;
   gpa: number | null;
   zip_code: string | null;
+  // Current high school — free-text (migration 010). Required for the
+  // matcher to filter out school-restricted scholarships (many community
+  // foundation funds are tied to a specific high school). Nullable because
+  // older profiles pre-dating 010 won't have it; the matcher treats a null
+  // high_school + a non-empty high_school_restriction as disqualifying
+  // and prompts the student to fill it in.
+  high_school: string | null;
   interests: string[];
   financial_need: FinancialNeed | null;
   // Social / outreach fields (migration 006). Both college/major are optional
@@ -79,6 +86,15 @@ export interface Scholarship {
   min_gpa: number | null;
   interests: string[];
   zip_scope: string; // 'national' | 'state:CA' | 'zip:94110'
+  /**
+   * If non-empty, the scholarship is restricted to students at these
+   * specific high schools. Match is case-insensitive + "High School" /
+   * "HS" suffix insensitive. Empty array (the default) means no high-
+   * school restriction. Added by migration 010 to stop CCCF fund rows
+   * tied to out-of-region high schools (e.g. Scarsdale NY) from
+   * appearing in Philly-area students' matches.
+   */
+  high_school_restriction: string[];
   url: string;
   essay_prompt: string | null;
   source: ScholarshipSource;

@@ -88,6 +88,18 @@ export function KanbanCard({ app, dragging, onDelete }: Props) {
           )}
         </span>
         <div className="flex items-center gap-2">
+          {app.scholarship.url && (
+            <a
+              href={app.scholarship.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              onPointerDown={(e) => e.stopPropagation()}
+              className="text-slate-500 hover:text-slate-800 font-medium"
+              title="Open scholarship listing in a new tab"
+            >
+              View ↗
+            </a>
+          )}
           <Link
             href={`/essay/${app.id}`}
             onPointerDown={(e) => e.stopPropagation()}

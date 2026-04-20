@@ -19,6 +19,15 @@ export interface RawScholarship {
   eligibility: string;
   url: string; // absolute or relative — normalize.ts resolves
   description?: string;
+  /**
+   * If the scholarship is restricted to students at one or more specific
+   * high schools, the school names. Empty array means no school
+   * restriction (open to any eligible student). Community foundation
+   * funds frequently carry these — CCCF alone has funds tied to
+   * individual schools in other states — so the matcher needs this to
+   * filter them out of out-of-school students' matches.
+   */
+  high_school_restriction?: string[];
 }
 
 const EXTRACTION_MODEL = "claude-haiku-4-5-20251001";
@@ -32,7 +41,8 @@ Return ONLY a JSON array. Each element must match:
   "deadline": string | null,             // raw text, e.g. "March 15, 2026" or "Rolling" or null
   "eligibility": string,                 // one sentence summarizing who qualifies
   "url": string,                         // full or relative link to the individual scholarship page
-  "description": string                  // one short sentence describing the scholarship
+  "description": string,                 // one short sentence describing the scholarship
+  "high_school_restriction": string[]    // see rules below — usually []
 }
 
 Rules:
@@ -40,7 +50,14 @@ Rules:
 - If the page lists scholarships by name only (no detail), still return them with best-effort eligibility="Not specified" and description="See listing page".
 - If the page has no scholarships at all, return [].
 - Do NOT fabricate amounts, deadlines, or URLs — leave null / use the listing page URL if a per-scholarship link is not present.
-- Never wrap the JSON in markdown fences or prose. Output must be a bare JSON array.`;
+- Never wrap the JSON in markdown fences or prose. Output must be a bare JSON array.
+
+About high_school_restriction (IMPORTANT — gets the matcher right):
+- If the eligibility text says the scholarship is ONLY open to students at one or more specific named high schools, return those school names as an array of strings: e.g. ["Scarsdale High School"] or ["Conestoga High School", "Great Valley High School"].
+- Use the full school name as written on the page. Include "High School" in the name.
+- If the text says "students graduating from a high school in X County" or similar region-level language, return []. Only specific named schools count.
+- If the text mentions a high school only as context (e.g. "established in memory of a former teacher at Lansdale HS") but the scholarship itself is open more broadly, return [].
+- When in doubt, return []. Over-restricting hides legitimate matches from students; under-restricting just shows one extra card.`;
 
 export async function extractScholarshipsFromHtml(args: {
   html: string;
@@ -106,11 +123,23 @@ function parseJsonArray(raw: string): RawScholarship[] {
 function isRawScholarshipShape(x: unknown): x is RawScholarship {
   if (!x || typeof x !== "object") return false;
   const o = x as Record<string, unknown>;
-  return (
-    typeof o.title === "string" &&
-    typeof o.eligibility === "string" &&
-    typeof o.url === "string" &&
-    (o.amount === null || typeof o.amount === "string") &&
-    (o.deadline === null || typeof o.deadline === "string")
-  );
+  if (
+    typeof o.title !== "string" ||
+    typeof o.eligibility !== "string" ||
+    typeof o.url !== "string" ||
+    !(o.amount === null || typeof o.amount === "string") ||
+    !(o.deadline === null || typeof o.deadline === "string")
+  ) {
+    return false;
+  }
+  // high_school_restriction is optional — old outputs and retries may
+  // omit it entirely. Accept undefined, reject anything that isn't a
+  // string[] when present.
+  if (o.high_school_restriction !== undefined) {
+    if (!Array.isArray(o.high_school_restriction)) return false;
+    if (!o.high_school_restriction.every((s) => typeof s === "string")) {
+      return false;
+    }
+  }
+  return true;
 }

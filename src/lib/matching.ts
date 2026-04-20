@@ -75,6 +75,32 @@ function evaluate(
     }
   }
 
+  // 4. High-school restriction. Many CCCF funds are tied to a specific
+  //    high school, sometimes one far outside the foundation's region
+  //    (Halliday Clark → Scarsdale HS, Scarsdale NY). If
+  //    high_school_restriction is non-empty, the student's high school
+  //    must match one of the entries. If the student hasn't set their
+  //    high school yet, we disqualify with a "fix your profile" message
+  //    rather than silently showing restricted rows.
+  const restriction = s.high_school_restriction ?? [];
+  if (restriction.length > 0) {
+    if (!profile.high_school) {
+      disqualifiers.push(
+        `Restricted to ${restriction[0]}${restriction.length > 1 ? ` (+${restriction.length - 1} more)` : ""} — add your high school to your profile`,
+      );
+    } else {
+      const studentSchool = normalizeSchool(profile.high_school);
+      const allowed = restriction.map(normalizeSchool);
+      if (!allowed.includes(studentSchool)) {
+        disqualifiers.push(
+          `Only for students at ${restriction.join(" / ")}`,
+        );
+      } else {
+        reasons.push(`For students at ${profile.high_school}`);
+      }
+    }
+  }
+
   // Score (only meaningful for non-disqualified rows)
   let score = 50;
 
@@ -116,4 +142,19 @@ function evaluate(
     disqualifiers,
     disqualified: disqualifiers.length > 0,
   };
+}
+
+/**
+ * Normalize a high school name for comparison: lowercase, strip
+ * trailing "High School" / "HS" suffixes, collapse whitespace,
+ * drop common filler words. Lets "Spring-Ford High School",
+ * "Spring-Ford HS", and "spring-ford high school" all compare equal.
+ */
+function normalizeSchool(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/\b(high school|high|h\.?s\.?)\b/g, "")
+    .replace(/[^a-z0-9\- ]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }

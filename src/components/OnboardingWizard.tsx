@@ -34,6 +34,7 @@ export function OnboardingWizard({ initial }: Props) {
       : "",
   );
   const [zip, setZip] = useState(initial?.zip_code ?? "");
+  const [highSchool, setHighSchool] = useState(initial?.high_school ?? "");
   const [intendedCollege, setIntendedCollege] = useState(
     initial?.intended_college ?? "",
   );
@@ -64,6 +65,8 @@ export function OnboardingWizard({ initial }: Props) {
       const n = parseFloat(gpa);
       if (isNaN(n) || n < 0 || n > 4.5) return "Enter a GPA between 0 and 4.5.";
       if (!/^\d{5}$/.test(zip)) return "Enter a 5-digit ZIP code.";
+      if (!highSchool.trim())
+        return "Enter your high school — some local scholarships are restricted to specific schools.";
     }
     if (step === 2) {
       // College plans step — both fields optional. No-op.
@@ -109,6 +112,7 @@ export function OnboardingWizard({ initial }: Props) {
         full_name: fullName.trim(),
         gpa: parseFloat(gpa),
         zip_code: zip,
+        high_school: highSchool.trim() || null,
         intended_college: intendedCollege.trim() || null,
         intended_major: intendedMajor.trim() || null,
         allow_marketing_emails: allowMarketingEmails,
@@ -146,8 +150,10 @@ export function OnboardingWizard({ initial }: Props) {
           <StepAcademics
             gpa={gpa}
             zip={zip}
+            highSchool={highSchool}
             onGpa={setGpa}
             onZip={setZip}
+            onHighSchool={setHighSchool}
           />
         )}
         {step === 2 && (
@@ -261,13 +267,17 @@ function StepBasics({
 function StepAcademics({
   gpa,
   zip,
+  highSchool,
   onGpa,
   onZip,
+  onHighSchool,
 }: {
   gpa: string;
   zip: string;
+  highSchool: string;
   onGpa: (v: string) => void;
   onZip: (v: string) => void;
+  onHighSchool: (v: string) => void;
 }) {
   return (
     <div>
@@ -300,6 +310,21 @@ function StepAcademics({
             placeholder="94110"
           />
         </div>
+      </div>
+      <div className="mt-4">
+        <label className="block text-sm font-medium text-slate-700">
+          High school
+        </label>
+        <input
+          value={highSchool}
+          onChange={(e) => onHighSchool(e.target.value)}
+          className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-brand-500 focus:ring-brand-500"
+          placeholder="Spring-Ford High School"
+        />
+        <p className="mt-1 text-xs text-slate-500">
+          Some local awards are restricted to specific high schools — we'll
+          hide the ones you aren't eligible for.
+        </p>
       </div>
     </div>
   );

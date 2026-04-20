@@ -482,6 +482,7 @@ async function upsertDedup(
         min_gpa: row.min_gpa,
         interests: row.interests,
         zip_scope: row.zip_scope,
+        high_school_restriction: row.high_school_restriction,
         essay_prompt: row.essay_prompt,
       })
       .eq("url", row.url)

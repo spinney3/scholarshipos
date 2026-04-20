@@ -36,6 +36,12 @@ export interface NormalizedScholarship {
    * zipMapping.ts so it covers the foundation's full service area.
    */
   zip_scope: string;
+  /**
+   * Named high schools the scholarship is restricted to. Empty = open
+   * to any eligible student. Set from Claude's extraction output; see
+   * src/lib/scraper/extract.ts for the criteria Claude applies.
+   */
+  high_school_restriction: string[];
   url: string;
   essay_prompt: null;
   source: "local";
@@ -64,6 +70,13 @@ export function normalize(
   const derivedScope = getZipScopeForSource(source.id);
   const zipScope = derivedScope === "national" ? source.zip_scope : derivedScope;
 
+  // Normalize each restriction entry: trim, dedupe, cap length.
+  const restrictionSet = new Set<string>();
+  for (const s of raw.high_school_restriction ?? []) {
+    const cleaned = s.trim().slice(0, 120);
+    if (cleaned) restrictionSet.add(cleaned);
+  }
+
   return {
     title: title.slice(0, 200),
     provider: source.name,
@@ -74,6 +87,7 @@ export function normalize(
     min_gpa: null,
     interests: [],
     zip_scope: zipScope,
+    high_school_restriction: Array.from(restrictionSet),
     url,
     essay_prompt: null,
     source: "local",
