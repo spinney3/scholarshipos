@@ -84,9 +84,9 @@ export default async function MatchesPage() {
   }
 
   // Always render the Local section for students whose ZIP is covered, even
-  // if empty — the empty-state is where we explain that the catalog needs a
-  // scrape run. If the ZIP isn't covered at all, skip the section entirely
-  // rather than tease something we can't deliver.
+  // if empty — the empty-state gives students something to do (add manually)
+  // rather than staring at silence. If the ZIP isn't covered at all, skip
+  // the section entirely rather than tease something we can't deliver.
   if (coveredZip || localMatches.length > 0) {
     groups.push({
       key: "local",
@@ -99,19 +99,19 @@ export default async function MatchesPage() {
         localMatches.length === 0 ? (
           <div className="rounded-md border border-dashed border-emerald-200 bg-emerald-50/40 p-5 text-sm text-emerald-900">
             <p className="font-medium">
-              No local scholarships in the catalog yet for your region.
+              No local scholarships to show just yet.
             </p>
             <p className="mt-1 text-emerald-800/90">
-              We have community foundation coverage for your ZIP, but no rows
-              have been loaded. Run <code className="rounded bg-white px-1.5 py-0.5 text-xs">npm run scrape:local</code>{" "}
-              against the production database to pull current listings, or{" "}
+              New local awards are added as we find them — check back soon. If
+              your counselor forwarded you something or you spotted one on a
+              community foundation site, you can{" "}
               <Link
                 href="/scholarships/new"
                 className="font-medium underline underline-offset-2 hover:text-emerald-700"
               >
-                add one manually
+                add it manually
               </Link>{" "}
-              if a counselor forwarded you something.
+              and it'll land right in your pipeline.
             </p>
           </div>
         ) : undefined,
