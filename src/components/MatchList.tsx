@@ -27,21 +27,76 @@ interface Props {
   groups: EligibleGroup[];
   ineligible: MatchResult[];
   inPipeline: Record<string, ApplicationStatus>;
+  /** Scholarship IDs the user has dismissed — hidden from groups/ineligible
+   *  and surfaced in a collapsible "dismissed" section at the bottom so
+   *  they can be restored. Loaded server-side from dismissed_scholarships. */
+  dismissedIds: string[];
 }
 
-export function MatchList({ groups, ineligible, inPipeline }: Props) {
+export function MatchList({
+  groups,
+  ineligible,
+  inPipeline,
+  dismissedIds,
+}: Props) {
   const [pipeline, setPipeline] = useState(inPipeline);
   const [showIneligible, setShowIneligible] = useState(false);
-
-  const totalEligible = groups.reduce((n, g) => n + g.matches.length, 0);
+  const [showDismissed, setShowDismissed] = useState(false);
+  // Track dismissals on the client so the view can update without a full
+  // page reload. Seeded from the server-loaded list. Adding an ID hides the
+  // card; deleting restores it.
+  const [dismissed, setDismissed] = useState<Set<string>>(
+    () => new Set(dismissedIds),
+  );
 
   function handleAdded(id: string) {
     setPipeline((p) => ({ ...p, [id]: "discovered" }));
   }
 
+  function handleDismiss(id: string) {
+    setDismissed((prev) => {
+      const next = new Set(prev);
+      next.add(id);
+      return next;
+    });
+  }
+
+  function handleRestore(id: string) {
+    setDismissed((prev) => {
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+  }
+
+  // Split the groups into "visible" and "dismissed-from-this-group" so the
+  // user sees per-card removal without touching the server-passed data.
+  const visibleGroups = groups.map((g) => ({
+    ...g,
+    matches: g.matches.filter((r) => !dismissed.has(r.scholarship.id)),
+  }));
+  const visibleIneligible = ineligible.filter(
+    (r) => !dismissed.has(r.scholarship.id),
+  );
+
+  // Flatten everything that's currently dismissed so we can show them in
+  // one collapsible restore section at the bottom.
+  const allResults = [
+    ...groups.flatMap((g) => g.matches),
+    ...ineligible,
+  ];
+  const dismissedMatches = allResults.filter((r) =>
+    dismissed.has(r.scholarship.id),
+  );
+
+  const totalEligible = visibleGroups.reduce(
+    (n, g) => n + g.matches.length,
+    0,
+  );
+
   return (
     <>
-      {groups.map((group) => (
+      {visibleGroups.map((group) => (
         <section key={group.key} className="mt-8 first:mt-6">
           <div className="flex items-center gap-3">
             {group.accentClass && (
@@ -70,6 +125,8 @@ export function MatchList({ groups, ineligible, inPipeline }: Props) {
                 match={r}
                 status={pipeline[r.scholarship.id]}
                 onAdded={handleAdded}
+                onDismiss={handleDismiss}
+                onDismissFailed={handleRestore}
               />
             ))}
             {group.matches.length === 0 && group.emptyState}
@@ -77,29 +134,54 @@ export function MatchList({ groups, ineligible, inPipeline }: Props) {
         </section>
       ))}
 
-      {totalEligible === 0 && groups.every((g) => !g.emptyState) && (
+      {totalEligible === 0 && visibleGroups.every((g) => !g.emptyState) && (
         <p className="mt-6 rounded-md border border-dashed border-slate-300 bg-white p-6 text-sm text-slate-600">
           No matches yet. Try adjusting your interests or GPA on your profile.
         </p>
       )}
 
-      {ineligible.length > 0 && (
+      {visibleIneligible.length > 0 && (
         <div className="mt-10">
           <button
             onClick={() => setShowIneligible((v) => !v)}
             className="text-sm text-slate-600 hover:text-slate-900"
           >
-            {showIneligible ? "Hide" : "Show"} {ineligible.length} scholarships
-            you don't currently qualify for
+            {showIneligible ? "Hide" : "Show"} {visibleIneligible.length}{" "}
+            scholarships you don't currently qualify for
           </button>
           {showIneligible && (
             <div className="mt-4 grid gap-4 opacity-70">
-              {ineligible.map((r) => (
+              {visibleIneligible.map((r) => (
                 <MatchCard
                   key={r.scholarship.id}
                   match={r}
                   status={pipeline[r.scholarship.id]}
                   onAdded={handleAdded}
+                  onDismiss={handleDismiss}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {dismissedMatches.length > 0 && (
+        <div className="mt-10">
+          <button
+            onClick={() => setShowDismissed((v) => !v)}
+            className="text-sm text-slate-600 hover:text-slate-900"
+          >
+            {showDismissed ? "Hide" : "Show"} {dismissedMatches.length}{" "}
+            dismissed scholarship
+            {dismissedMatches.length === 1 ? "" : "s"}
+          </button>
+          {showDismissed && (
+            <div className="mt-4 grid gap-4 opacity-70">
+              {dismissedMatches.map((r) => (
+                <DismissedCard
+                  key={r.scholarship.id}
+                  match={r}
+                  onRestore={handleRestore}
                 />
               ))}
             </div>
@@ -114,10 +196,14 @@ function MatchCard({
   match,
   status,
   onAdded,
+  onDismiss,
+  onDismissFailed,
 }: {
   match: MatchResult;
   status: ApplicationStatus | undefined;
   onAdded: (id: string) => void;
+  onDismiss: (id: string) => void;
+  onDismissFailed?: (id: string) => void;
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -144,6 +230,33 @@ function MatchCard({
     }
     onAdded(s.id);
     startTransition(() => router.refresh());
+  }
+
+  async function dismiss() {
+    setErr(null);
+    const supabase = createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) return;
+
+    // Optimistically hide the card — the insert lands in the background.
+    // If the network fails, we log and restore so the student isn't stuck
+    // with a card that claims to be dismissed but isn't persisted.
+    onDismiss(s.id);
+
+    const { error } = await supabase
+      .from("dismissed_scholarships")
+      .upsert(
+        { user_id: user.id, scholarship_id: s.id },
+        { onConflict: "user_id,scholarship_id" },
+      );
+
+    if (error) {
+      setErr(`Couldn't dismiss: ${error.message}`);
+      // Roll back the optimistic hide — the parent restores the card.
+      onDismissFailed?.(s.id);
+    }
   }
 
   // Scraped rows from community foundation catalog pages often lack a
@@ -254,17 +367,85 @@ function MatchCard({
               In pipeline · {STATUS_LABELS[status]}
             </span>
           ) : (
-            <button
-              onClick={addToPipeline}
-              disabled={isPending}
-              className="rounded-md bg-brand-500 px-3 py-1.5 text-white hover:bg-brand-600 disabled:opacity-60"
-            >
-              Add to pipeline
-            </button>
+            <>
+              <button
+                onClick={dismiss}
+                className="text-slate-500 hover:text-slate-800"
+                title="Hide this from your matches. You can restore it from the Dismissed section at the bottom."
+              >
+                Not interested
+              </button>
+              <button
+                onClick={addToPipeline}
+                disabled={isPending}
+                className="rounded-md bg-brand-500 px-3 py-1.5 text-white hover:bg-brand-600 disabled:opacity-60"
+              >
+                Add to pipeline
+              </button>
+            </>
           )}
         </div>
       </div>
 
+      {err && <p className="mt-2 text-xs text-red-600">{err}</p>}
+    </article>
+  );
+}
+
+/**
+ * Compact card for the "Dismissed" collapsible at the bottom of /matches.
+ * Shows just enough to recognize the scholarship + a Restore button that
+ * deletes the dismissed_scholarships row. Visually muted (via opacity-70 on
+ * the wrapping div) so the section feels archival, not primary.
+ */
+function DismissedCard({
+  match,
+  onRestore,
+}: {
+  match: MatchResult;
+  onRestore: (id: string) => void;
+}) {
+  const [err, setErr] = useState<string | null>(null);
+  const { scholarship: s } = match;
+
+  async function restore() {
+    setErr(null);
+    const supabase = createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) return;
+
+    // Optimistic restore — pull it back into the eligible list immediately.
+    onRestore(s.id);
+
+    const { error } = await supabase
+      .from("dismissed_scholarships")
+      .delete()
+      .eq("user_id", user.id)
+      .eq("scholarship_id", s.id);
+
+    if (error) {
+      setErr(`Couldn't restore: ${error.message}`);
+      // No rollback — the card is already back in the visible list. The
+      // only loss is that the DB dismissal persists. Reload fixes it.
+    }
+  }
+
+  return (
+    <article className="rounded-lg border border-slate-200 bg-white p-4">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h3 className="font-medium text-slate-900">{s.title}</h3>
+          <p className="text-xs text-slate-500">{s.provider}</p>
+        </div>
+        <button
+          onClick={restore}
+          className="text-sm text-brand-600 hover:text-brand-700 font-medium"
+        >
+          Restore
+        </button>
+      </div>
       {err && <p className="mt-2 text-xs text-red-600">{err}</p>}
     </article>
   );

@@ -27,8 +27,12 @@ export default async function MatchesPage() {
     redirect("/onboarding");
   }
 
-  // All scholarships + the user's existing applications
-  const [{ data: scholarships }, { data: applications }] = await Promise.all([
+  // All scholarships + the user's existing applications + dismissals
+  const [
+    { data: scholarships },
+    { data: applications },
+    { data: dismissedRows },
+  ] = await Promise.all([
     // nullsFirst: false so scraped rows without a listed deadline sort to the
     // bottom of /matches rather than crowding the top. Dated scholarships —
     // which carry real urgency signal — stay at the front of the list.
@@ -37,7 +41,15 @@ export default async function MatchesPage() {
       .select("*")
       .order("deadline", { ascending: true, nullsFirst: false }),
     supabase.from("applications").select("id, scholarship_id, status").eq("user_id", user.id),
+    supabase
+      .from("dismissed_scholarships")
+      .select("scholarship_id")
+      .eq("user_id", user.id),
   ]);
+
+  const dismissedIds = new Set<string>(
+    (dismissedRows ?? []).map((r: { scholarship_id: string }) => r.scholarship_id),
+  );
 
   const results = matchScholarships(profile, (scholarships ?? []) as Scholarship[]);
   const inPipeline = new Map<string, Application["status"]>();
@@ -172,6 +184,7 @@ export default async function MatchesPage() {
         groups={groups}
         ineligible={ineligible}
         inPipeline={Object.fromEntries(inPipeline.entries())}
+        dismissedIds={Array.from(dismissedIds)}
       />
     </div>
   );
