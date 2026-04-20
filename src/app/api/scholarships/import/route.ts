@@ -1,29 +1,41 @@
 /**
  * POST /api/scholarships/import
  *
- * Student's manual "add a scholarship" entry point. Two modes, selected by
- * the client based on which tab was used:
+ * Student's manual "add a scholarship" entry point. Three modes, selected
+ * by the client based on which tab was used:
  *
- *   1. URL mode  — multipart field `mode=url` + `url=<https://...>`. We
- *      fetch the page server-side, strip HTML to text, and hand it to
- *      Claude for single-scholarship extraction.
+ *   1. URL mode     — multipart field `mode=url` + `url=<https://...>`. We
+ *                     fetch the page server-side, strip HTML to text, and
+ *                     pass it through the same cleanup + keyword gate as
+ *                     uploads before handing it to Claude.
  *
- *   2. PDF mode  — multipart field `mode=pdf` + `file=<PDF blob>`. We
- *      parse the PDF to text with pdf-parse, then run the same extraction.
+ *   2. Upload mode  — multipart field `mode=upload` + `file=<blob>`. We
+ *                     auto-detect PDF / DOCX / TXT from the filename and
+ *                     MIME hint, parse with the appropriate library
+ *                     (pdf-parse, mammoth, or a native decoder), then run
+ *                     the same downstream pipeline.
  *
- * In both cases we:
+ *   3. Paste mode   — multipart field `mode=paste` + `text=<raw text>`.
+ *                     Student pastes the body of a counselor's email or a
+ *                     PTA announcement directly. Cheapest path — no file
+ *                     handling, no fetch — and dodges the "scanned PDF
+ *                     OCR" failure mode entirely.
+ *
+ * In all three cases we:
  *   - authenticate via the student's Supabase session,
- *   - write the scholarship row with source='user_added' + created_by=user.id
- *     so RLS keeps it private to this student,
- *   - normalize Claude's loose strings (amount, deadline) into the shapes the
- *     scholarships table expects,
- *   - create an application row in 'discovered' so the card lands directly
- *     on the Kanban board.
+ *   - route text through src/lib/manual/extractText.ts for whitespace
+ *     collapse, page-header dedup, and the scholarship-keyword gate
+ *     (short-circuits obvious non-matches BEFORE we burn a Haiku call),
+ *   - write the scholarship row with source='user_added' + created_by =
+ *     auth.uid() so RLS keeps it private to this student,
+ *   - normalize Claude's loose strings (amount, deadline) into the shapes
+ *     the scholarships table expects,
+ *   - create an application row in 'discovered' so the card lands
+ *     directly on the Kanban board.
  *
- * We intentionally do NOT persist the uploaded PDF. Extraction is one-shot:
- * we pull the structured fields we need and discard the bytes. If future
- * work wants to let students re-view the flyer, Supabase Storage is the
- * natural home for it.
+ * We intentionally do NOT persist the raw upload. Extraction is one-shot:
+ * pull the structured fields, discard the bytes. If future work wants to
+ * let students re-view the flyer, Supabase Storage is the natural home.
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -32,13 +44,17 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { classifyClaudeError } from "@/lib/anthropic";
 import { extractOneScholarship } from "@/lib/manual/extractOne";
 import { fetchUrlAsText, FetchUrlError } from "@/lib/manual/fetchUrl";
+import { extractFromFile, extractFromPaste, ExtractError } from "@/lib/manual/extractText";
 import { parseAmount, parseDeadline } from "@/lib/scraper/normalize";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 30; // URL fetch + pdf-parse + one Haiku call
+export const maxDuration = 30; // URL fetch + parse + one Haiku call
 
-const MAX_PDF_BYTES = 5 * 1024 * 1024; // 5MB cap enforced server-side
+const MAX_FILE_BYTES = 5 * 1024 * 1024; // 5MB cap for uploads
+const MAX_PASTE_CHARS = 5_000_000; // rough "5MB of text" ceiling for paste mode
+
+type Mode = "url" | "upload" | "paste";
 
 export async function POST(req: NextRequest) {
   // --- Auth ---------------------------------------------------------------
@@ -61,59 +77,85 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const mode = form.get("mode");
-  if (mode !== "url" && mode !== "pdf") {
+  const rawMode = (form.get("mode") ?? "").toString();
+  if (rawMode !== "url" && rawMode !== "upload" && rawMode !== "paste") {
     return NextResponse.json(
-      { error: "Expected mode=url or mode=pdf." },
+      { error: "Expected mode=url, mode=upload, or mode=paste." },
       { status: 400 },
     );
   }
+  const mode = rawMode as Mode;
 
   // --- Gather source text -------------------------------------------------
+  // All three paths converge on a cleaned text blob + a URL string (which
+  // may be empty for uploads/paste — MatchList hides the "view source"
+  // link when url is empty).
   let sourceText: string;
   let sourceLabel: string;
-  let sourceUrl = ""; // stored on the scholarship row; may be empty for PDFs
+  let sourceUrl = "";
 
   try {
     if (mode === "url") {
       const raw = (form.get("url") ?? "").toString();
       const fetched = await fetchUrlAsText(raw);
-      sourceText = fetched.text;
+      // fetchUrlAsText already HTML-stripped. Running it back through the
+      // paste-mode path gives us the same whitespace + keyword-gate
+      // treatment as uploads — "URL that loads but isn't about a
+      // scholarship" is a thing, and we shouldn't pay Claude to discover
+      // it.
+      const extracted = extractFromPaste(fetched.text);
+      sourceText = extracted.text;
       sourceUrl = fetched.url;
       sourceLabel = `Source: pasted URL ${fetched.url}`;
-    } else {
+    } else if (mode === "upload") {
       const file = form.get("file");
       if (!(file instanceof Blob)) {
         return NextResponse.json(
-          { error: "Please choose a PDF to upload." },
+          { error: "Please choose a file to upload." },
           { status: 400 },
         );
       }
       if (file.size === 0) {
         return NextResponse.json(
-          { error: "That PDF is empty." },
+          { error: "That file is empty." },
           { status: 400 },
         );
       }
-      if (file.size > MAX_PDF_BYTES) {
+      if (file.size > MAX_FILE_BYTES) {
         return NextResponse.json(
-          { error: "PDF is too large (5MB max)." },
+          { error: "File is too large (5MB max)." },
           { status: 413 },
         );
       }
-      // file.type can be missing on mobile uploads — don't enforce strictly,
-      // but reject if it's clearly something else.
-      if (file.type && !/pdf/i.test(file.type)) {
+
+      const bytes = Buffer.from(await file.arrayBuffer());
+      const originalName = file instanceof File ? file.name : "upload";
+      const mimeHint = file.type ?? "";
+
+      const extracted = await extractFromFile({
+        bytes,
+        filename: originalName,
+        mimeHint,
+      });
+      sourceText = extracted.text;
+      sourceLabel = `Source: uploaded ${extracted.format.toUpperCase()} "${originalName}"`;
+    } else {
+      const raw = (form.get("text") ?? "").toString();
+      if (!raw.trim()) {
         return NextResponse.json(
-          { error: "Only PDF files are supported on this tab." },
+          { error: "Paste in the scholarship details first." },
           { status: 400 },
         );
       }
-
-      const buf = Buffer.from(await file.arrayBuffer());
-      sourceText = await pdfToText(buf);
-      const originalName = file instanceof File ? file.name : "flyer.pdf";
-      sourceLabel = `Source: uploaded PDF "${originalName}"`;
+      if (raw.length > MAX_PASTE_CHARS) {
+        return NextResponse.json(
+          { error: "That's a lot of text — trim it down to the scholarship info." },
+          { status: 413 },
+        );
+      }
+      const extracted = extractFromPaste(raw);
+      sourceText = extracted.text;
+      sourceLabel = "Source: pasted text";
     }
   } catch (err) {
     if (err instanceof FetchUrlError) {
@@ -122,19 +164,17 @@ export async function POST(req: NextRequest) {
         { status: 400 },
       );
     }
+    if (err instanceof ExtractError) {
+      // Short, clean 400s with the specific reason — used by the UI to
+      // swap in a friendlier message for "not_scholarship" etc.
+      return NextResponse.json(
+        { error: err.message, code: err.code },
+        { status: 400 },
+      );
+    }
     const msg = err instanceof Error ? err.message : String(err);
     return NextResponse.json(
       { error: `Couldn't read that source: ${msg}` },
-      { status: 400 },
-    );
-  }
-
-  if (!sourceText || sourceText.trim().length < 30) {
-    return NextResponse.json(
-      {
-        error:
-          "We couldn't pull any readable text out of that source. Try a different URL or upload the PDF manually.",
-      },
       { status: 400 },
     );
   }
@@ -174,7 +214,7 @@ export async function POST(req: NextRequest) {
       // ZIP scope. The student is the only one who will ever see this row
       // anyway (RLS), so scope rules are redundant here.
       zip_scope: "national",
-      url: sourceUrl, // empty string for PDF uploads; MatchList hides the link
+      url: sourceUrl, // empty for upload/paste; MatchList hides the link
       essay_prompt: extracted.essay_prompt,
       source: "user_added",
       created_by: user.id,
@@ -196,9 +236,8 @@ export async function POST(req: NextRequest) {
     status: "discovered",
   });
   if (appErr) {
-    // Scholarship already saved — we still report success for the scholarship
-    // but surface the pipeline error so the UI can prompt the student to
-    // retry from /matches.
+    // Scholarship already saved — surface the pipeline error so the UI can
+    // prompt the student to retry from /matches.
     return NextResponse.json(
       {
         scholarship_id: insertedScholarship.id,
@@ -217,21 +256,4 @@ export async function POST(req: NextRequest) {
     },
     { status: 200 },
   );
-}
-
-/**
- * Parse a PDF Buffer to plain text. Imported via the deep path
- * `pdf-parse/lib/pdf-parse.js` to skip the package's index.js which runs a
- * self-test against a bundled sample PDF at module-load — that self-test
- * breaks under Next.js's bundler because the sample file isn't included
- * in the serverless function trace. The deep path is the community-standard
- * workaround and pdf-parse's maintainers document it.
- */
-async function pdfToText(buf: Buffer): Promise<string> {
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const pdfParse = (await import("pdf-parse/lib/pdf-parse.js")).default as (
-    data: Buffer,
-  ) => Promise<{ text: string }>;
-  const result = await pdfParse(buf);
-  return (result.text ?? "").replace(/\s+/g, " ").trim();
 }
