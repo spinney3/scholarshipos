@@ -23,7 +23,12 @@ type ImportErrorCode =
   | "timeout"
   | "network"
   | "too_large"
-  | "not_text";
+  | "not_text"
+  // Rate-limit codes from src/lib/rateLimits.ts.
+  | "daily_cap"
+  | "burst_cap"
+  | "input_too_large"
+  | "draft_cap";
 
 interface FormError {
   code: ImportErrorCode | null;
@@ -332,6 +337,9 @@ function TabButton({
 }
 
 // Extract / fetch errors → amber, friendly "here's what to try" tone.
+// Rate-limit codes fall in this bucket too — they render the same "try
+// again later / trim your input" banner without needing a dedicated
+// component in this form.
 function isExtractCode(code: ImportErrorCode | null): boolean {
   return (
     code === "empty" ||
@@ -343,7 +351,11 @@ function isExtractCode(code: ImportErrorCode | null): boolean {
     code === "timeout" ||
     code === "network" ||
     code === "too_large" ||
-    code === "not_text"
+    code === "not_text" ||
+    code === "daily_cap" ||
+    code === "burst_cap" ||
+    code === "input_too_large" ||
+    code === "draft_cap"
   );
 }
 

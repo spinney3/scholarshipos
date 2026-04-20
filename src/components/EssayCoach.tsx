@@ -11,8 +11,41 @@ import type {
 import { INTERVIEW_TARGET_QUESTIONS } from "@/lib/types";
 import type { ClaudeErrorCode } from "@/lib/anthropic";
 import { ClaudeApiError, ClaudeErrorBanner } from "./ClaudeErrorBanner";
+import { RateLimitBanner } from "./RateLimitBanner";
 
-type CoachError = { code?: ClaudeErrorCode; message: string };
+/** Structured error details the rate limiter returns alongside the code. */
+interface RateLimitDetails {
+  limit?: number;
+  used?: number;
+  resetAtIso?: string;
+  maxTokens?: number;
+  actualTokens?: number;
+}
+
+/** All error codes the coach might see back from its routes. Claude errors
+ *  from @/lib/anthropic plus the rate-limit codes from @/lib/rateLimits. */
+type CoachErrorCode =
+  | ClaudeErrorCode
+  | "daily_cap"
+  | "burst_cap"
+  | "input_too_large"
+  | "draft_cap";
+
+type CoachError = {
+  code?: CoachErrorCode;
+  message: string;
+  details?: RateLimitDetails;
+};
+
+/** Narrow a free-form string into the rate-limit branch of CoachErrorCode. */
+function isRateLimitCode(code: string | undefined): boolean {
+  return (
+    code === "daily_cap" ||
+    code === "burst_cap" ||
+    code === "input_too_large" ||
+    code === "draft_cap"
+  );
+}
 
 interface Props {
   application: Application;
@@ -54,22 +87,38 @@ export function EssayCoach({
     });
     const json = await res.json().catch(() => ({} as Record<string, unknown>));
     if (!res.ok) {
-      const code =
+      const rawCode =
         typeof (json as { code?: unknown }).code === "string"
-          ? ((json as { code: ClaudeErrorCode }).code)
+          ? ((json as { code: string }).code)
           : undefined;
       const message =
         (typeof (json as { error?: unknown }).error === "string"
           ? (json as { error: string }).error
           : undefined) ?? `Request failed: ${res.status}`;
-      throw new ClaudeApiError(message, code);
+      const details =
+        (json as { details?: RateLimitDetails }).details ?? undefined;
+      // Rate-limit errors come back as 429s with our structured codes;
+      // everything else is either a Claude error (by code) or a generic
+      // failure (no code). We funnel them all through ClaudeApiError
+      // because it already propagates cleanly to the UI; the renderer
+      // below branches on whether the code matches a rate-limit code.
+      const err = new ClaudeApiError(message, rawCode as ClaudeErrorCode);
+      (err as ClaudeApiError & { details?: RateLimitDetails }).details =
+        details;
+      throw err;
     }
     return json as T;
   }
 
   function captureError(e: unknown) {
     if (e instanceof ClaudeApiError) {
-      setError({ code: e.code, message: e.message });
+      const details = (e as ClaudeApiError & { details?: RateLimitDetails })
+        .details;
+      setError({
+        code: e.code as CoachErrorCode | undefined,
+        message: e.message,
+        details,
+      });
     } else {
       setError({ message: e instanceof Error ? e.message : String(e) });
     }
@@ -148,9 +197,17 @@ export function EssayCoach({
 
   return (
     <div className="space-y-4">
-      {error && (
+      {error && isRateLimitCode(error.code) && (
+        <RateLimitBanner
+          code={error.code as "daily_cap" | "burst_cap" | "input_too_large" | "draft_cap"}
+          message={error.message}
+          details={error.details}
+          onDismiss={() => setError(null)}
+        />
+      )}
+      {error && !isRateLimitCode(error.code) && (
         <ClaudeErrorBanner
-          code={error.code}
+          code={error.code as ClaudeErrorCode | undefined}
           message={error.message}
           onDismiss={() => setError(null)}
         />

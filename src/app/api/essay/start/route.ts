@@ -7,6 +7,12 @@ import {
   READY_MARKER,
 } from "@/lib/essayPrompts";
 import type { Essay, InterviewTurn } from "@/lib/types";
+import {
+  RateLimitError,
+  checkRateLimit,
+  rateLimitErrorResponse,
+  recordUsage,
+} from "@/lib/rateLimits";
 
 /**
  * POST /api/essay/start
@@ -74,8 +80,26 @@ export async function POST(req: Request) {
     return NextResponse.json({ essay: existing as Essay });
   }
 
+  // Rate limit gate. Starting an essay is cheap (one short Claude call)
+  // but capped per-day and under the new-account burst window.
+  try {
+    await checkRateLimit({
+      userId: user.id,
+      kind: "coach_interview_start",
+      userInput: "", // no user-controlled input on /start
+    });
+  } catch (e) {
+    if (e instanceof RateLimitError) {
+      const r = rateLimitErrorResponse(e);
+      return NextResponse.json(r.body, { status: r.status });
+    }
+    throw e;
+  }
+
   // Ask Claude for the very first question.
   let firstQuestion: string;
+  let tokensIn = 0;
+  let tokensOut = 0;
   try {
     const anthropic = getAnthropic();
     const msg = await anthropic.messages.create({
@@ -89,6 +113,8 @@ export async function POST(req: Request) {
       .map((b) => b.text)
       .join("")
       .trim();
+    tokensIn = msg.usage?.input_tokens ?? 0;
+    tokensOut = msg.usage?.output_tokens ?? 0;
     if (!firstQuestion || firstQuestion.includes(READY_MARKER)) {
       throw new Error("Coach returned no opening question");
     }
@@ -99,6 +125,16 @@ export async function POST(req: Request) {
       { status: c.status },
     );
   }
+
+  // Successful call — record usage before we persist. Fire-and-forget on
+  // insert error so a flaky usage table doesn't break the essay flow.
+  await recordUsage({
+    userId: user.id,
+    kind: "coach_interview_start",
+    tokensIn,
+    tokensOut,
+    subjectId: applicationId,
+  });
 
   const initialTurns: InterviewTurn[] = [
     { role: "coach", content: firstQuestion },

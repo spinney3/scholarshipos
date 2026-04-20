@@ -7,6 +7,12 @@ import {
   turnsToMessages,
 } from "@/lib/essayPrompts";
 import type { Essay, InterviewTurn } from "@/lib/types";
+import {
+  RateLimitError,
+  checkRateLimit,
+  rateLimitErrorResponse,
+  recordUsage,
+} from "@/lib/rateLimits";
 
 /**
  * POST /api/essay/answer
@@ -75,8 +81,28 @@ export async function POST(req: Request) {
     { role: "student", content: answer.trim() },
   ];
 
+  // Rate limit gate. The student-supplied `answer` is the largest
+  // user-controlled input in the interview flow — worth checking
+  // against the per-call input ceiling so a 20,000-word paste can't
+  // sneak through. Daily cap is the main chokepoint here (30 turns/day).
+  try {
+    await checkRateLimit({
+      userId: user.id,
+      kind: "coach_interview_turn",
+      userInput: answer,
+    });
+  } catch (e) {
+    if (e instanceof RateLimitError) {
+      const r = rateLimitErrorResponse(e);
+      return NextResponse.json(r.body, { status: r.status });
+    }
+    throw e;
+  }
+
   // Call Claude for the next question.
   let coachText: string;
+  let tokensIn = 0;
+  let tokensOut = 0;
   try {
     const anthropic = getAnthropic();
     const msg = await anthropic.messages.create({
@@ -90,6 +116,8 @@ export async function POST(req: Request) {
       .map((b) => b.text)
       .join("")
       .trim();
+    tokensIn = msg.usage?.input_tokens ?? 0;
+    tokensOut = msg.usage?.output_tokens ?? 0;
   } catch (e) {
     const c = classifyClaudeError(e);
     return NextResponse.json(
@@ -97,6 +125,15 @@ export async function POST(req: Request) {
       { status: c.status },
     );
   }
+
+  // Successful call — record before persisting turn.
+  await recordUsage({
+    userId: user.id,
+    kind: "coach_interview_turn",
+    tokensIn,
+    tokensOut,
+    subjectId: essayId,
+  });
 
   if (!coachText) {
     return NextResponse.json(

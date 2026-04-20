@@ -8,6 +8,12 @@ import {
 } from "@/lib/vaultAdaptPrompts";
 import type { VaultEssay, VaultPromptType } from "@/lib/types";
 import { VAULT_PROMPT_TYPE_OPTIONS } from "@/lib/types";
+import {
+  RateLimitError,
+  checkRateLimit,
+  rateLimitErrorResponse,
+  recordUsage,
+} from "@/lib/rateLimits";
 
 const VALID_TYPES = new Set<VaultPromptType>(
   VAULT_PROMPT_TYPE_OPTIONS.map((o) => o.value),
@@ -82,6 +88,23 @@ export async function POST(req: Request) {
     );
   }
 
+  // Rate limit gate. The old essay content + the target prompt are
+  // user-controlled; run the per-call input ceiling against their combo.
+  const sizeInput = oldEssay.content + "\n\n" + body.prompt_text;
+  try {
+    await checkRateLimit({
+      userId: user.id,
+      kind: "essay_adapt",
+      userInput: sizeInput,
+    });
+  } catch (e) {
+    if (e instanceof RateLimitError) {
+      const r = rateLimitErrorResponse(e);
+      return NextResponse.json(r.body, { status: r.status });
+    }
+    throw e;
+  }
+
   try {
     const anthropic = getAnthropic();
     const msg = await anthropic.messages.create({
@@ -103,6 +126,16 @@ export async function POST(req: Request) {
       .map((b) => b.text)
       .join("");
     const guidance = parseAdaptationResponse(text);
+
+    // Successful call — record usage.
+    await recordUsage({
+      userId: user.id,
+      kind: "essay_adapt",
+      tokensIn: msg.usage?.input_tokens ?? 0,
+      tokensOut: msg.usage?.output_tokens ?? 0,
+      subjectId: oldEssay.id,
+    });
+
     return NextResponse.json({ guidance });
   } catch (e) {
     const c = classifyClaudeError(e);

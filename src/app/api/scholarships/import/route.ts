@@ -46,6 +46,12 @@ import { extractOneScholarship } from "@/lib/manual/extractOne";
 import { fetchUrlAsText, FetchUrlError } from "@/lib/manual/fetchUrl";
 import { extractFromFile, extractFromPaste, ExtractError } from "@/lib/manual/extractText";
 import { parseAmount, parseDeadline } from "@/lib/scraper/normalize";
+import {
+  RateLimitError,
+  checkRateLimit,
+  rateLimitErrorResponse,
+  recordUsage,
+} from "@/lib/rateLimits";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -179,13 +185,38 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  // --- Rate limit gate ---------------------------------------------------
+  // Fires AFTER the extract pipeline (which already ran its keyword gate
+  // and may have short-circuited an obviously-not-a-scholarship upload
+  // before we got here) but BEFORE the Claude call. That ordering means
+  // the cheap keyword gate blocks more than the rate limiter — good, we
+  // want the free defense to trigger first.
+  try {
+    await checkRateLimit({
+      userId: user.id,
+      kind: "manual_add",
+      userInput: sourceText,
+    });
+  } catch (e) {
+    if (e instanceof RateLimitError) {
+      const r = rateLimitErrorResponse(e);
+      return NextResponse.json(r.body, { status: r.status });
+    }
+    throw e;
+  }
+
   // --- Claude extraction --------------------------------------------------
   let extracted;
+  let extractionTokensIn = 0;
+  let extractionTokensOut = 0;
   try {
-    extracted = await extractOneScholarship({
+    const result = await extractOneScholarship({
       text: sourceText,
       sourceLabel,
     });
+    extracted = result.extracted;
+    extractionTokensIn = result.tokensIn;
+    extractionTokensOut = result.tokensOut;
   } catch (err) {
     const c = classifyClaudeError(err);
     return NextResponse.json(
@@ -193,6 +224,16 @@ export async function POST(req: NextRequest) {
       { status: c.status },
     );
   }
+
+  // Successful Claude call — record usage before DB writes so a later
+  // DB error doesn't lose the accounting. (Worst case: duplicate record
+  // if the route retries, which is acceptable overcounting.)
+  await recordUsage({
+    userId: user.id,
+    kind: "manual_add",
+    tokensIn: extractionTokensIn,
+    tokensOut: extractionTokensOut,
+  });
 
   // --- Normalize into the scholarships schema ----------------------------
   const admin = createAdminClient();
@@ -214,6 +255,12 @@ export async function POST(req: NextRequest) {
       // ZIP scope. The student is the only one who will ever see this row
       // anyway (RLS), so scope rules are redundant here.
       zip_scope: "national",
+      // Pass the school restriction through if the student uploaded a row
+      // tied to a specific high school. Usually empty (students add
+      // scholarships they're personally eligible for) but set for
+      // consistency with scraped rows so the matcher treats both paths
+      // uniformly.
+      high_school_restriction: extracted.high_school_restriction ?? [],
       url: sourceUrl, // empty for upload/paste; MatchList hides the link
       essay_prompt: extracted.essay_prompt,
       source: "user_added",

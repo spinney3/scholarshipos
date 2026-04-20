@@ -7,6 +7,12 @@ import {
   parseDraftResponse,
 } from "@/lib/essayPrompts";
 import type { Essay, EssayDraft, InterviewTurn } from "@/lib/types";
+import {
+  RateLimitError,
+  checkRateLimit,
+  rateLimitErrorResponse,
+  recordUsage,
+} from "@/lib/rateLimits";
 
 /**
  * POST /api/essay/draft
@@ -70,16 +76,37 @@ export async function POST(req: Request) {
     );
   }
 
+  // Rate limit gate. The transcript is the largest input at this point
+  // — check it against the per-call ceiling. coach_draft has its own
+  // lower daily cap (5/day) because each draft generates up to 3k output
+  // tokens and is the most expensive call in the coaching flow.
+  const transcriptForSizing = draftUserMessage(turns);
+  try {
+    await checkRateLimit({
+      userId: user.id,
+      kind: "coach_draft",
+      userInput: transcriptForSizing,
+    });
+  } catch (e) {
+    if (e instanceof RateLimitError) {
+      const r = rateLimitErrorResponse(e);
+      return NextResponse.json(r.body, { status: r.status });
+    }
+    throw e;
+  }
+
   // Call Claude for outline + draft.
   let outline: string;
   let draft: string;
+  let tokensIn = 0;
+  let tokensOut = 0;
   try {
     const anthropic = getAnthropic();
     const msg = await anthropic.messages.create({
       model: ESSAY_MODEL,
       max_tokens: 3000,
       system: draftSystemPrompt(essay.prompt),
-      messages: [{ role: "user", content: draftUserMessage(turns) }],
+      messages: [{ role: "user", content: transcriptForSizing }],
     });
     const text = msg.content
       .filter((b): b is { type: "text"; text: string } => b.type === "text")
@@ -88,6 +115,8 @@ export async function POST(req: Request) {
     const parsed = parseDraftResponse(text);
     outline = parsed.outline;
     draft = parsed.draft;
+    tokensIn = msg.usage?.input_tokens ?? 0;
+    tokensOut = msg.usage?.output_tokens ?? 0;
   } catch (e) {
     const c = classifyClaudeError(e);
     return NextResponse.json(
@@ -95,6 +124,15 @@ export async function POST(req: Request) {
       { status: c.status },
     );
   }
+
+  // Successful call — record usage.
+  await recordUsage({
+    userId: user.id,
+    kind: "coach_draft",
+    tokensIn,
+    tokensOut,
+    subjectId: essayId,
+  });
 
   // Determine next version number for this essay.
   const { data: latest } = await supabase
